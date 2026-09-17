@@ -35,3 +35,7 @@ export function setDefaultAiModel(modelId) {
 export function testAiModelChat(modelId) {
   return request({ url: `/ai/config/models/${modelId}/test-chat`, method: 'post', headers: { repeatSubmit: false } })
 }
+
+export function testAiModelTools(modelId) {
+  return request({ url: `/ai/config/models/${modelId}/test-tools`, method: 'post', headers: { repeatSubmit: false } })
+}
