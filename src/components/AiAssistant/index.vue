@@ -1,13 +1,13 @@
 <template>
   <div class="ai-assistant-host">
-    <el-button class="ai-fab" type="primary" circle size="large" title="AI 助手" @click="openDrawer">
+    <el-button data-testid="ai-assistant-open" class="ai-fab" type="primary" circle size="large" title="AI 助手" @click="openDrawer">
       <el-icon><ChatDotRound /></el-icon>
     </el-button>
 
     <el-drawer v-model="visible" title="AI 助手" size="420px" :append-to-body="true" class="ai-assistant-drawer">
       <div class="assistant-body">
         <div class="assistant-toolbar">
-          <el-select v-model="modelId" placeholder="选择模型" :disabled="!!conversationId || busy" style="flex: 1" @visible-change="handleModelDropdown">
+          <el-select data-testid="ai-assistant-model" v-model="modelId" placeholder="选择模型" :disabled="!!conversationId || busy" style="flex: 1" @visible-change="handleModelDropdown">
             <el-option v-for="model in models" :key="model.modelId" :label="model.displayName || model.modelCode" :value="model.modelId">
               <span>{{ model.displayName || model.modelCode }}</span>
               <el-tag v-if="model.defaultModel === '0'" size="small" type="success" style="margin-left: 8px">默认</el-tag>
@@ -16,7 +16,7 @@
           <el-button :disabled="busy" @click="newConversation">新会话</el-button>
         </div>
 
-        <div ref="messagePane" class="message-pane">
+        <div ref="messagePane" data-testid="ai-assistant-messages" class="message-pane">
           <div v-if="messages.length === 0" class="empty-tip">
             可以直接聊天，也可以让我操作当前支持 AI 工具的页面。
           </div>
@@ -34,6 +34,7 @@
 
         <div class="composer">
           <el-input
+            data-testid="ai-assistant-input"
             v-model="input"
             type="textarea"
             :rows="3"
@@ -44,7 +45,7 @@
           />
           <div class="composer-actions">
             <span class="route-hint">当前：{{ route.path }}</span>
-            <el-button type="primary" :loading="busy" :disabled="!input.trim() || !modelId" @click="sendMessage">发送</el-button>
+            <el-button data-testid="ai-assistant-send" type="primary" :loading="busy" :disabled="!input.trim() || !modelId" @click="sendMessage">发送</el-button>
           </div>
         </div>
       </div>
