@@ -79,7 +79,12 @@ try {
   await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
   await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
   await page.locator('.ai-fab').click()
-  await page.getByText('mock-agent-model', { exact: true }).first().waitFor({ timeout: 15000 })
+  const assistantModelSelect = page.locator('.assistant-toolbar .el-select').first()
+  await assistantModelSelect.waitFor({ timeout: 15000 })
+  await assistantModelSelect.click()
+  const modelOption = page.locator('.el-select-dropdown:visible').getByText('mock-agent-model', { exact: true })
+  await modelOption.waitFor({ timeout: 15000 })
+  await modelOption.click()
 
   console.log('5. Ask AI to search, open edit, change form, and save')
   await page.getByPlaceholder('告诉 AI 你想做什么…').fill(
