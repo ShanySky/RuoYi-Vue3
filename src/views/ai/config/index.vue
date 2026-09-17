@@ -15,10 +15,10 @@
           <el-input v-model="form.name" maxlength="64" />
         </el-form-item>
         <el-form-item label="Base URL" prop="baseUrl">
-          <el-input v-model="form.baseUrl" placeholder="例如：https://api.example.com/v1" />
+          <el-input data-testid="ai-config-base-url" v-model="form.baseUrl" placeholder="例如：https://api.example.com/v1" />
         </el-form-item>
         <el-form-item label="Token">
-          <el-input v-model="form.token" type="password" show-password autocomplete="new-password" :placeholder="provider.hasToken ? '已保存 Token；留空表示不修改' : '请输入 API Token'" />
+          <el-input data-testid="ai-config-token" v-model="form.token" type="password" show-password autocomplete="new-password" :placeholder="provider.hasToken ? '已保存 Token；留空表示不修改' : '请输入 API Token'" />
           <div v-if="provider.hasToken" class="token-tip">已保存：{{ provider.tokenMask }}</div>
         </el-form-item>
         <el-form-item label="超时">
@@ -26,12 +26,12 @@
           <span class="suffix">秒</span>
         </el-form-item>
         <el-form-item label="启用服务">
-          <el-switch v-model="form.enabled" />
+          <el-switch data-testid="ai-config-enabled" v-model="form.enabled" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+          <el-button data-testid="ai-config-save" type="primary" :loading="saving" @click="save">保存</el-button>
           <el-button :loading="testing" @click="testConnection">测试连接</el-button>
-          <el-button type="success" :loading="syncing" :disabled="!provider.providerId" @click="syncModels">同步模型</el-button>
+          <el-button data-testid="ai-config-sync" type="success" :loading="syncing" :disabled="!provider.providerId" @click="syncModels">同步模型</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -64,7 +64,7 @@
         <el-table-column label="默认" width="120" align="center">
           <template #default="scope">
             <el-tag v-if="scope.row.defaultModel === '0'" type="success">默认</el-tag>
-            <el-button v-else link type="primary" @click="makeDefault(scope.row)">设为默认</el-button>
+            <el-button v-else :data-testid="`ai-model-default-${scope.row.modelId}`" link type="primary" @click="makeDefault(scope.row)">设为默认</el-button>
           </template>
         </el-table-column>
         <el-table-column label="测试" width="180" align="center">
