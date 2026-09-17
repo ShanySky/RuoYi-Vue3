@@ -41,7 +41,7 @@
         <div class="card-header">
           <div>
             <div class="title">模型</div>
-            <div class="subtitle">只有启用的模型会出现在 AI 助手中。默认模型会被优先选择。</div>
+            <div class="subtitle">只有启用的模型会出现在 AI 助手中。Tool Calling 测试不会执行任何业务操作。</div>
           </div>
           <el-button @click="loadModels">刷新</el-button>
         </div>
@@ -67,9 +67,10 @@
             <el-button v-else link type="primary" @click="makeDefault(scope.row)">设为默认</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="测试" width="110" align="center">
+        <el-table-column label="测试" width="180" align="center">
           <template #default="scope">
-            <el-button link type="primary" @click="testChat(scope.row)">聊天测试</el-button>
+            <el-button link type="primary" :disabled="scope.row.enabled !== '0'" @click="testChat(scope.row)">聊天</el-button>
+            <el-button link type="primary" :disabled="scope.row.enabled !== '0'" @click="testTools(scope.row)">工具</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -81,7 +82,7 @@
 import { ElMessage } from 'element-plus'
 import {
   getAiProvider, saveAiProvider, testAiProvider, syncAiModels, listAiModels,
-  setAiModelEnabled, setDefaultAiModel, testAiModelChat
+  setAiModelEnabled, setDefaultAiModel, testAiModelChat, testAiModelTools
 } from '@/api/ai/config'
 
 const providerRef = ref(null)
@@ -164,6 +165,12 @@ async function makeDefault(row) {
 async function testChat(row) {
   const res = await testAiModelChat(row.modelId)
   ElMessage.success(`模型响应：${res.data || '成功'}`)
+}
+
+async function testTools(row) {
+  const res = await testAiModelTools(row.modelId)
+  await loadModels()
+  ElMessage.success(`Tool Calling：${res.data}`)
 }
 
 onMounted(async () => {
