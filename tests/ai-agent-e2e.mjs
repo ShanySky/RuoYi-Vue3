@@ -53,8 +53,8 @@ try {
   await page.getByPlaceholder('例如：https://api.example.com/v1').fill(PROVIDER_URL)
   await page.getByPlaceholder(/API Token|已保存 Token/).fill(PROVIDER_TOKEN)
 
-  const enabledSwitch = page.getByRole('switch').first()
-  if ((await enabledSwitch.getAttribute('aria-checked')) !== 'true') {
+  const enabledSwitch = page.locator('.ai-config-page .el-switch').first()
+  if (!(await enabledSwitch.getAttribute('class') || '').includes('is-checked')) {
     await enabledSwitch.click()
   }
 
