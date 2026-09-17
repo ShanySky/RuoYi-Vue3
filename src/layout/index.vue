@@ -10,6 +10,7 @@
       <app-main />
       <settings ref="settingRef" />
     </div>
+    <ai-assistant />
   </div>
 </template>
 
@@ -17,6 +18,7 @@
 import { useWindowSize } from '@vueuse/core'
 import Sidebar from './components/Sidebar/index.vue'
 import { AppMain, Navbar, Settings, TagsView } from './components'
+import AiAssistant from '@/components/AiAssistant/index.vue'
 import useAppStore from '@/store/modules/app'
 import useSettingsStore from '@/store/modules/settings'
 
@@ -34,8 +36,8 @@ const classObj = computed(() => ({
   mobile: device.value === 'mobile'
 }))
 
-const { width, height } = useWindowSize()
-const WIDTH = 992 // refer to Bootstrap's responsive design
+const { width } = useWindowSize()
+const WIDTH = 992
 
 watch(() => device.value, () => {
   if (device.value === 'mobile' && sidebar.value.opened) {
@@ -102,15 +104,7 @@ function setLayout() {
   transition: width 0.28s;
 }
 
-.hideSidebar .fixed-header {
-  width: calc(100% - 54px);
-}
-
-.sidebarHide .fixed-header {
-  width: 100%;
-}
-
-.mobile .fixed-header {
-  width: 100%;
-}
+.hideSidebar .fixed-header { width: calc(100% - 54px); }
+.sidebarHide .fixed-header { width: 100%; }
+.mobile .fixed-header { width: 100%; }
 </style>
