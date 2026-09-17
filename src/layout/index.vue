@@ -36,8 +36,8 @@ const classObj = computed(() => ({
   mobile: device.value === 'mobile'
 }))
 
-const { width } = useWindowSize()
-const WIDTH = 992
+const { width, height } = useWindowSize()
+const WIDTH = 992 // refer to Bootstrap's responsive design
 
 watch(() => device.value, () => {
   if (device.value === 'mobile' && sidebar.value.opened) {
@@ -104,7 +104,15 @@ function setLayout() {
   transition: width 0.28s;
 }
 
-.hideSidebar .fixed-header { width: calc(100% - 54px); }
-.sidebarHide .fixed-header { width: 100%; }
-.mobile .fixed-header { width: 100%; }
+.hideSidebar .fixed-header {
+  width: calc(100% - 54px);
+}
+
+.sidebarHide .fixed-header {
+  width: 100%;
+}
+
+.mobile .fixed-header {
+  width: 100%;
+}
 </style>
