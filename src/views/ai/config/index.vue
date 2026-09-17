@@ -163,7 +163,7 @@ async function makeDefault(row) {
 
 async function testChat(row) {
   const res = await testAiModelChat(row.modelId)
-  ElMessage.success(`模型响应：${res.answer || '成功'}`)
+  ElMessage.success(`模型响应：${res.data || '成功'}`)
 }
 
 onMounted(async () => {
