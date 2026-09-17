@@ -58,10 +58,10 @@ try {
     await enabledSwitch.click()
   }
 
-  await page.locator('[data-testid="ai-config-save"]').click()
+  await page.getByRole('button', { name: '保存', exact: true }).click()
   await page.getByText('AI 服务配置已保存').waitFor({ timeout: 20000 })
 
-  await page.locator('[data-testid="ai-config-sync"]').click()
+  await page.getByRole('button', { name: '同步模型', exact: true }).click()
   await page.getByText('mock-agent-model', { exact: true }).first().waitFor({ timeout: 20000 })
 
   const defaultButton = page.getByRole('button', { name: '设为默认' })
@@ -78,14 +78,14 @@ try {
   console.log('4. Open user management and start AI assistant')
   await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
   await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
-  await page.locator('[data-testid="ai-assistant-open"]').click()
+  await page.locator('.ai-fab').click()
   await page.getByText('mock-agent-model', { exact: true }).first().waitFor({ timeout: 15000 })
 
   console.log('5. Ask AI to search, open edit, change form, and save')
-  await page.locator('[data-testid="ai-assistant-input"] textarea').fill(
+  await page.getByPlaceholder('告诉 AI 你想做什么…').fill(
     `请查找用户 ry，打开这个用户，把昵称改成 ${TEST_NICKNAME}，然后保存。`
   )
-  await page.locator('[data-testid="ai-assistant-send"]').click()
+  await page.getByRole('button', { name: '发送', exact: true }).click()
 
   await page.getByText('AI 操作确认').waitFor({ timeout: 60000 })
 
