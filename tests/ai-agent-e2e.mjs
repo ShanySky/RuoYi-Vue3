@@ -50,10 +50,10 @@ try {
   console.log('2. Configure OpenAI-compatible provider through UI')
   await page.goto(`${APP_URL}/system/aiConfig`, { waitUntil: 'networkidle' })
   await page.getByText('AI 服务配置', { exact: true }).first().waitFor({ timeout: 30000 })
-  await page.locator('[data-testid="ai-config-base-url"] input').fill(PROVIDER_URL)
-  await page.locator('[data-testid="ai-config-token"] input').fill(PROVIDER_TOKEN)
+  await page.getByPlaceholder('例如：https://api.example.com/v1').fill(PROVIDER_URL)
+  await page.getByPlaceholder(/API Token|已保存 Token/).fill(PROVIDER_TOKEN)
 
-  const enabledSwitch = page.locator('[data-testid="ai-config-enabled"]')
+  const enabledSwitch = page.getByRole('switch').first()
   if ((await enabledSwitch.getAttribute('aria-checked')) !== 'true') {
     await enabledSwitch.click()
   }
@@ -77,7 +77,7 @@ try {
 
   console.log('4. Open user management and start AI assistant')
   await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
-  await page.locator('[data-testid="user-search-name"] input').waitFor({ timeout: 30000 })
+  await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
   await page.locator('[data-testid="ai-assistant-open"]').click()
   await page.getByText('mock-agent-model', { exact: true }).first().waitFor({ timeout: 15000 })
 
@@ -89,7 +89,7 @@ try {
 
   await page.getByText('AI 操作确认').waitFor({ timeout: 60000 })
 
-  const nicknameInput = page.locator('[data-testid="user-edit-nickname"] input')
+  const nicknameInput = page.getByPlaceholder('请输入用户昵称')
   await nicknameInput.waitFor({ timeout: 15000 })
   assert.equal(await nicknameInput.inputValue(), TEST_NICKNAME, 'AI did not populate edit form before submit')
 
