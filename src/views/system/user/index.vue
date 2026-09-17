@@ -52,22 +52,15 @@
             </template>
          </el-table-column>
           <el-table-column label="用户昵称" align="center" key="nickName" prop="nickName" v-if="columns.nickName.visible" :show-overflow-tooltip="true" />
-          <el-table-column label="部门" align="center" key="deptName" prop="dept.deptName" v-if="columns.deptName.visible" :show-overflow-tooltip="true" />
+          <el-table-column label="部门" align="center" key="deptName" prop="dept.deptName" v-if="columns.deptName.visible" />
           <el-table-column label="手机号码" align="center" key="phonenumber" prop="phonenumber" v-if="columns.phonenumber.visible" width="120" />
           <el-table-column label="状态" align="center" key="status" v-if="columns.status.visible">
             <template #default="scope">
-              <el-switch
-                v-model="scope.row.status"
-                active-value="0"
-                inactive-value="1"
-                @change="handleStatusChange(scope.row)"
-              ></el-switch>
+              <el-switch v-model="scope.row.status" active-value="0" inactive-value="1" @change="handleStatusChange(scope.row)"></el-switch>
             </template>
           </el-table-column>
           <el-table-column label="创建时间" align="center" prop="createTime" v-if="columns.createTime.visible" width="160">
-            <template #default="scope">
-              <span>{{ parseTime(scope.row.createTime) }}</span>
-            </template>
+            <template #default="scope"><span>{{ parseTime(scope.row.createTime) }}</span></template>
           </el-table-column>
           <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
             <template #default="scope">
@@ -90,96 +83,34 @@
       </div>
     </div>
 
-    <!-- 添加或修改用户配置对话框 -->
     <el-dialog :title="title" v-model="open" width="600px" append-to-body>
       <el-form :model="form" :rules="rules" ref="userRef" label-width="80px">
         <el-row>
-          <el-col :span="12">
-            <el-form-item label="用户昵称" prop="nickName">
-              <el-input v-model="form.nickName" placeholder="请输入用户昵称" maxlength="30" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="归属部门" prop="deptId">
-              <el-tree-select v-model="form.deptId" :data="enabledDeptOptions" :props="{ value: 'id', label: 'label', children: 'children' }" value-key="id" placeholder="请选择归属部门" clearable check-strictly />
-            </el-form-item>
-          </el-col>
+          <el-col :span="12"><el-form-item label="用户昵称" prop="nickName"><el-input v-model="form.nickName" placeholder="请输入用户昵称" maxlength="30" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="归属部门" prop="deptId"><el-tree-select v-model="form.deptId" :data="enabledDeptOptions" :props="{ value: 'id', label: 'label', children: 'children' }" value-key="id" placeholder="请选择归属部门" clearable check-strictly /></el-form-item></el-col>
         </el-row>
         <el-row>
-          <el-col :span="12">
-            <el-form-item label="手机号码" prop="phonenumber">
-              <el-input v-model="form.phonenumber" placeholder="请输入手机号码" maxlength="11" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="邮箱" prop="email">
-              <el-input v-model="form.email" placeholder="请输入邮箱" maxlength="50" />
-            </el-form-item>
-          </el-col>
+          <el-col :span="12"><el-form-item label="手机号码" prop="phonenumber"><el-input v-model="form.phonenumber" placeholder="请输入手机号码" maxlength="11" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="邮箱" prop="email"><el-input v-model="form.email" placeholder="请输入邮箱" maxlength="50" /></el-form-item></el-col>
         </el-row>
         <el-row>
-          <el-col :span="12">
-            <el-form-item v-if="form.userId == undefined" label="用户名称" prop="userName">
-              <el-input v-model="form.userName" placeholder="请输入用户名称" maxlength="30" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item v-if="form.userId == undefined" label="用户密码" prop="password" :rules="pwdValidator">
-              <el-input v-model="form.password" placeholder="请输入用户密码" type="password" maxlength="20" show-password />
-            </el-form-item>
-          </el-col>
+          <el-col :span="12"><el-form-item v-if="form.userId == undefined" label="用户名称" prop="userName"><el-input v-model="form.userName" placeholder="请输入用户名称" maxlength="30" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item v-if="form.userId == undefined" label="用户密码" prop="password" :rules="pwdValidator"><el-input v-model="form.password" placeholder="请输入用户密码" type="password" maxlength="20" show-password /></el-form-item></el-col>
         </el-row>
         <el-row>
-          <el-col :span="12">
-            <el-form-item label="用户性别">
-              <el-select v-model="form.sex" placeholder="请选择">
-                <el-option v-for="dict in sys_user_sex" :key="dict.value" :label="dict.label" :value="dict.value"></el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="状态">
-              <el-radio-group v-model="form.status">
-                <el-radio v-for="dict in sys_normal_disable" :key="dict.value" :value="dict.value">{{ dict.label }}</el-radio>
-              </el-radio-group>
-            </el-form-item>
-          </el-col>
+          <el-col :span="12"><el-form-item label="用户性别"><el-select v-model="form.sex" placeholder="请选择"><el-option v-for="dict in sys_user_sex" :key="dict.value" :label="dict.label" :value="dict.value"></el-option></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="状态"><el-radio-group v-model="form.status"><el-radio v-for="dict in sys_normal_disable" :key="dict.value" :value="dict.value">{{ dict.label }}</el-radio></el-radio-group></el-form-item></el-col>
         </el-row>
         <el-row>
-          <el-col :span="12">
-            <el-form-item label="岗位">
-              <el-select v-model="form.postIds" multiple placeholder="请选择">
-                <el-option v-for="item in postOptions" :key="item.postId" :label="item.postName" :value="item.postId" :disabled="item.status == 1"></el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="角色">
-              <el-select v-model="form.roleIds" multiple placeholder="请选择">
-                <el-option v-for="item in roleOptions" :key="item.roleId" :label="item.roleName" :value="item.roleId" :disabled="item.status == 1"></el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
+          <el-col :span="12"><el-form-item label="岗位"><el-select v-model="form.postIds" multiple placeholder="请选择"><el-option v-for="item in postOptions" :key="item.postId" :label="item.postName" :value="item.postId" :disabled="item.status == 1"></el-option></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="角色"><el-select v-model="form.roleIds" multiple placeholder="请选择"><el-option v-for="item in roleOptions" :key="item.roleId" :label="item.roleName" :value="item.roleId" :disabled="item.status == 1"></el-option></el-select></el-form-item></el-col>
         </el-row>
-        <el-row>
-          <el-col :span="24">
-            <el-form-item label="备注">
-              <el-input v-model="form.remark" type="textarea" placeholder="请输入内容"></el-input>
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <el-row><el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" placeholder="请输入内容"></el-input></el-form-item></el-col></el-row>
       </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button type="primary" @click="submitForm">确 定</el-button>
-          <el-button @click="cancel">取 消</el-button>
-        </div>
-      </template>
+      <template #footer><div class="dialog-footer"><el-button type="primary" @click="submitForm">确 定</el-button><el-button @click="cancel">取 消</el-button></div></template>
     </el-dialog>
 
-    <!-- 用户详情抽屉 -->
     <user-view-drawer ref="userViewRef" />
-    <!-- 用户导入对话框 -->
     <excel-import-dialog ref="importUserRef" title="用户导入" action="/system/user/importData" template-action="/system/user/importTemplate" template-file-name="user_template" update-support-label="是否更新已经存在的用户数据" @success="getList" />
   </div>
 </template>
@@ -189,6 +120,7 @@ import TreePanel from "@/components/TreePanel"
 import ExcelImportDialog from "@/components/ExcelImportDialog"
 import UserViewDrawer from "./view"
 import { usePasswordRule } from "@/utils/passwordRule"
+import { useAiPageTools } from "@/ai/toolRegistry"
 import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, updateUser, addUser, deptTreeSelect } from "@/api/system/user"
 
 const router = useRouter()
@@ -211,27 +143,16 @@ const enabledDeptOptions = ref(undefined)
 const initPassword = ref(undefined)
 const postOptions = ref([])
 const roleOptions = ref([])
-// 列显隐信息
 const columns = ref({
-  userId: { label: '用户编号', visible: true },
-  userName: { label: '用户名称', visible: true },
-  nickName: { label: '用户昵称', visible: true },
-  deptName: { label: '部门', visible: true },
-  phonenumber: { label: '手机号码', visible: true },
-  status: { label: '状态', visible: true },
+  userId: { label: '用户编号', visible: true }, userName: { label: '用户名称', visible: true },
+  nickName: { label: '用户昵称', visible: true }, deptName: { label: '部门', visible: true },
+  phonenumber: { label: '手机号码', visible: true }, status: { label: '状态', visible: true },
   createTime: { label: '创建时间', visible: true }
 })
 
 const data = reactive({
   form: {},
-  queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-    userName: undefined,
-    phonenumber: undefined,
-    status: undefined,
-    deptId: undefined
-  },
+  queryParams: { pageNum: 1, pageSize: 10, userName: undefined, phonenumber: undefined, status: undefined, deptId: undefined },
   rules: {
     userName: [{ required: true, message: "用户名称不能为空", trigger: "blur" }, { min: 2, max: 20, message: "用户名称长度必须介于 2 和 20 之间", trigger: "blur" }],
     nickName: [{ required: true, message: "用户昵称不能为空", trigger: "blur" }],
@@ -239,184 +160,75 @@ const data = reactive({
     phonenumber: [{ pattern: /^1[3|4|5|6|7|8|9][0-9]\d{8}$/, message: "请输入正确的手机号码", trigger: "blur" }]
   }
 })
-
 const { queryParams, form, rules } = toRefs(data)
 
-/** 查询用户列表 */
 function getList() {
   loading.value = true
-  listUser(proxy.addDateRange(queryParams.value, dateRange.value)).then(res => {
-    loading.value = false
+  return listUser(proxy.addDateRange(queryParams.value, dateRange.value)).then(res => {
     userList.value = res.rows
     total.value = res.total
-  })
+    return res
+  }).finally(() => { loading.value = false })
 }
 
-/** 查询部门下拉树结构 */
 function getDeptTree() {
-  deptTreeSelect().then(response => {
+  return deptTreeSelect().then(response => {
     deptOptions.value = response.data
     enabledDeptOptions.value = filterDisabledDept(JSON.parse(JSON.stringify(response.data)))
   })
 }
 
-/** 过滤禁用的部门 */
 function filterDisabledDept(deptList) {
   return deptList.filter(dept => {
-    if (dept.disabled) {
-      return false
-    }
-    if (dept.children && dept.children.length) {
-      dept.children = filterDisabledDept(dept.children)
-    }
+    if (dept.disabled) return false
+    if (dept.children && dept.children.length) dept.children = filterDisabledDept(dept.children)
     return true
   })
 }
 
-/** 节点单击事件 */
-function handleNodeClick(data) {
-  queryParams.value.deptId = data.id
-  handleQuery()
-}
-
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置按钮操作 */
+function handleNodeClick(data) { queryParams.value.deptId = data.id; return handleQuery() }
+function handleQuery() { queryParams.value.pageNum = 1; return getList() }
 function resetQuery() {
   dateRange.value = []
   proxy.resetForm("queryRef")
   queryParams.value.deptId = undefined
   proxy.$refs.deptTreeRef.setCurrentKey(null)
-  handleQuery()
+  return handleQuery()
 }
 
-/** 删除按钮操作 */
 function handleDelete(row) {
   const userIds = row.userId || ids.value
-  proxy.$modal.confirm('是否确认删除用户编号为"' + userIds + '"的数据项？').then(function () {
-    return delUser(userIds)
-  }).then(() => {
-    getList()
-    proxy.$modal.msgSuccess("删除成功")
-  }).catch(() => {})
+  proxy.$modal.confirm('是否确认删除用户编号为"' + userIds + '"的数据项？').then(() => delUser(userIds)).then(() => { getList(); proxy.$modal.msgSuccess("删除成功") }).catch(() => {})
 }
-
-/** 导出按钮操作 */
-function handleExport() {
-  proxy.download("system/user/export", {
-    ...queryParams.value,
-  },`user_${new Date().getTime()}.xlsx`)
-}
-
-/** 用户状态修改  */
+function handleExport() { proxy.download("system/user/export", { ...queryParams.value }, `user_${new Date().getTime()}.xlsx`) }
 function handleStatusChange(row) {
-  let text = row.status === "0" ? "启用" : "停用"
-  proxy.$modal.confirm('确认要"' + text + '""' + row.userName + '"用户吗?').then(function () {
-    return changeUserStatus(row.userId, row.status)
-  }).then(() => {
-    proxy.$modal.msgSuccess(text + "成功")
-  }).catch(function () {
-    row.status = row.status === "0" ? "1" : "0"
-  })
+  const text = row.status === "0" ? "启用" : "停用"
+  proxy.$modal.confirm('确认要"' + text + '""' + row.userName + '"用户吗?').then(() => changeUserStatus(row.userId, row.status)).then(() => proxy.$modal.msgSuccess(text + "成功")).catch(() => { row.status = row.status === "0" ? "1" : "0" })
 }
-
-/** 更多操作 */
-function handleCommand(command, row) {
-  switch (command) {
-    case "handleResetPwd":
-      handleResetPwd(row)
-      break
-    case "handleAuthRole":
-      handleAuthRole(row)
-      break
-    default:
-      break
-  }
-}
-
-/** 跳转角色分配 */
-function handleAuthRole(row) {
-  const userId = row.userId
-  router.push("/system/user-auth/role/" + userId)
-}
-
-/** 重置密码按钮操作 */
+function handleAuthRole(row) { router.push("/system/user-auth/role/" + row.userId) }
 function handleResetPwd(row) {
-  proxy.$prompt(`请输入「${row.userName}」的新密码`, "重置密码", {
-    confirmButtonText: "确定",
-    cancelButtonText: "取消",
-    closeOnClickModal: false,
-    inputValidator: pwdPromptValidator
-  }).then(({ value }) => {
-    resetUserPwd(row.userId, value).then(() => {
-      proxy.$modal.msgSuccess("修改成功，新密码是：" + value)
-    })
-  }).catch(() => {})
+  proxy.$prompt(`请输入「${row.userName}」的新密码`, "重置密码", { confirmButtonText: "确定", cancelButtonText: "取消", closeOnClickModal: false, inputValidator: pwdPromptValidator })
+    .then(({ value }) => resetUserPwd(row.userId, value).then(() => proxy.$modal.msgSuccess("修改成功，新密码是：" + value))).catch(() => {})
 }
+function handleSelectionChange(selection) { ids.value = selection.map(item => item.userId); single.value = selection.length != 1; multiple.value = !selection.length }
+function handleViewData(row) { proxy.$refs["userViewRef"].open(row.userId) }
+function handleImport() { proxy.$refs["importUserRef"].open() }
 
-/** 选择条数  */
-function handleSelectionChange(selection) {
-  ids.value = selection.map(item => item.userId)
-  single.value = selection.length != 1
-  multiple.value = !selection.length
-}
-
-/** 详情按钮操作 */
-function handleViewData(row) {
-  proxy.$refs["userViewRef"].open(row.userId)
-}
-
-/** 导入按钮操作 */
-function handleImport() {
-  proxy.$refs["importUserRef"].open()
-}
-
-/** 重置操作表单 */
 function reset() {
-  form.value = {
-    userId: undefined,
-    deptId: undefined,
-    userName: undefined,
-    nickName: undefined,
-    password: undefined,
-    phonenumber: undefined,
-    email: undefined,
-    sex: undefined,
-    status: "0",
-    remark: undefined,
-    postIds: [],
-    roleIds: []
-  }
+  form.value = { userId: undefined, deptId: undefined, userName: undefined, nickName: undefined, password: undefined, phonenumber: undefined, email: undefined, sex: undefined, status: "0", remark: undefined, postIds: [], roleIds: [] }
   proxy.resetForm("userRef")
 }
-
-/** 取消按钮 */
-function cancel() {
-  open.value = false
-  reset()
-}
-
-/** 新增按钮操作 */
+function cancel() { open.value = false; reset() }
 function handleAdd() {
   reset()
-  getUser().then(response => {
-    postOptions.value = response.posts
-    roleOptions.value = response.roles
-    open.value = true
-    title.value = "添加用户"
-    form.value.password = initPassword.value
+  return getUser().then(response => {
+    postOptions.value = response.posts; roleOptions.value = response.roles; open.value = true; title.value = "添加用户"; form.value.password = initPassword.value
   })
 }
-
-/** 修改按钮操作 */
 function handleUpdate(row) {
   reset()
-  const userId = row.userId || ids.value
-  getUser(userId).then(response => {
+  const userId = row?.userId || ids.value
+  return getUser(userId).then(response => {
     form.value = response.data
     postOptions.value = response.posts
     roleOptions.value = response.roles
@@ -425,35 +237,93 @@ function handleUpdate(row) {
     open.value = true
     title.value = "修改用户"
     form.value.password = ""
+    return response.data
   })
 }
 
-/** 提交按钮 */
-function submitForm() {
-  proxy.$refs["userRef"].validate(valid => {
-    if (valid) {
-      if (form.value.userId != undefined) {
-        updateUser(form.value).then(() => {
-          proxy.$modal.msgSuccess("修改成功")
-          open.value = false
-          getList()
-        })
-      } else {
-        addUser(form.value).then(() => {
-          proxy.$modal.msgSuccess("新增成功")
-          open.value = false
-          getList()
-        })
-      }
-    }
+function submitFormCore() {
+  return new Promise((resolve, reject) => {
+    proxy.$refs["userRef"].validate(valid => {
+      if (!valid) { reject(new Error("表单校验未通过")); return }
+      const editing = form.value.userId != undefined
+      const savedUserId = form.value.userId
+      const action = editing ? updateUser(form.value) : addUser(form.value)
+      action.then(() => {
+        proxy.$modal.msgSuccess(editing ? "修改成功" : "新增成功")
+        open.value = false
+        getList().then(() => resolve({ success: true, userId: savedUserId }))
+      }).catch(reject)
+    })
   })
 }
+function submitForm() { submitFormCore().catch(() => {}) }
+
+const aiTools = [
+  {
+    name: 'page_system_user_search',
+    description: '在当前用户管理页面设置查询条件并执行查询',
+    requiredPermission: 'system:user:list',
+    inputSchema: { type: 'object', properties: { userName: { type: 'string', description: '用户账号关键字' }, phonenumber: { type: 'string', description: '手机号' }, status: { type: 'string', enum: ['0', '1'], description: '0正常，1停用' } }, additionalProperties: false },
+    handler: async args => {
+      queryParams.value.userName = args.userName || undefined
+      queryParams.value.phonenumber = args.phonenumber || undefined
+      queryParams.value.status = args.status || undefined
+      await handleQuery()
+      return { total: total.value, rows: userList.value.map(item => ({ userId: item.userId, userName: item.userName, nickName: item.nickName })) }
+    }
+  },
+  {
+    name: 'page_system_user_edit_open',
+    description: '打开指定 userId 的用户编辑弹窗',
+    requiredPermission: 'system:user:edit',
+    inputSchema: { type: 'object', properties: { userId: { type: 'integer', description: '用户ID' } }, required: ['userId'], additionalProperties: false },
+    handler: async args => {
+      if (!args.userId) throw new Error('缺少 userId')
+      const data = await handleUpdate({ userId: args.userId })
+      return { opened: true, userId: data.userId, userName: data.userName, nickName: data.nickName }
+    }
+  },
+  {
+    name: 'page_system_user_edit_set_fields',
+    description: '修改当前已打开的用户编辑表单字段但不保存；仅允许昵称、手机号、邮箱、性别、状态、备注',
+    requiredPermission: 'system:user:edit',
+    inputSchema: { type: 'object', properties: { nickName: { type: 'string' }, phonenumber: { type: 'string' }, email: { type: 'string' }, sex: { type: 'string', enum: ['0', '1', '2'] }, status: { type: 'string', enum: ['0', '1'] }, remark: { type: 'string' } }, additionalProperties: false },
+    handler: async args => {
+      if (!open.value || !form.value.userId) throw new Error('当前没有打开用户编辑弹窗')
+      const allowed = ['nickName', 'phonenumber', 'email', 'sex', 'status', 'remark']
+      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) form.value[key] = args[key]
+      await nextTick()
+      return { userId: form.value.userId, changedFields: allowed.filter(key => Object.prototype.hasOwnProperty.call(args, key)), saved: false }
+    }
+  },
+  {
+    name: 'page_system_user_edit_submit',
+    description: '提交当前用户编辑表单并真实保存到系统',
+    requiredPermission: 'system:user:edit',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      if (!open.value || !form.value.userId) throw new Error('当前没有可提交的用户编辑表单')
+      return await submitFormCore()
+    }
+  }
+]
+
+function getAiPageContext() {
+  return {
+    pageName: '用户管理',
+    query: { userName: queryParams.value.userName, phonenumber: queryParams.value.phonenumber, status: queryParams.value.status },
+    total: total.value,
+    rows: userList.value.slice(0, 10).map(item => ({ userId: item.userId, userName: item.userName, nickName: item.nickName })),
+    selectedIds: ids.value,
+    editDialog: { open: open.value, userId: open.value ? form.value.userId : undefined, userName: open.value ? form.value.userName : undefined, nickName: open.value ? form.value.nickName : undefined }
+  }
+}
+
+useAiPageTools('system.user', aiTools, getAiPageContext)
 
 onMounted(() => {
   getDeptTree()
   getList()
-  proxy.getConfigKey("sys.user.initPassword").then(response => {
-    initPassword.value = response.msg
-  })
+  proxy.getConfigKey("sys.user.initPassword").then(response => { initPassword.value = response.msg })
 })
 </script>
