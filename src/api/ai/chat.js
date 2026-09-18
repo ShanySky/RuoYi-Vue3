@@ -38,6 +38,15 @@ export function cancelAiRun(runId, reason = 'USER_STOP') {
   })
 }
 
+export function cancelAllAiRuns(reason = 'USER_LOGOUT') {
+  return request({
+    url: '/ai/chat/runs/cancel-all',
+    method: 'post',
+    data: { reason },
+    headers: { repeatSubmit: false }
+  })
+}
+
 export function getAiRun(runId) {
   return request({ url: `/ai/chat/runs/${runId}`, method: 'get' })
 }
