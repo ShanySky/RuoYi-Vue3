@@ -75,7 +75,7 @@ function open(row) {
 
 function getList() {
   loading.value = true
-  listNoticeReadUsers(queryParams).then(res => {
+  return listNoticeReadUsers(queryParams).then(res => {
     userList.value = res.rows
     total.value = res.total
   }).finally(() => {
@@ -99,8 +99,26 @@ function handleClose() {
   queryParams.searchValue = undefined
 }
 
+async function openForAi(row) {
+  queryParams.noticeId = row.noticeId
+  noticeTitle.value = row.noticeTitle || ''
+  queryParams.searchValue = undefined
+  queryParams.pageNum = 1
+  visible.value = true
+  await getList()
+  return {
+    noticeId: queryParams.noticeId,
+    noticeTitle: noticeTitle.value,
+    total: total.value,
+    pageNum: queryParams.pageNum,
+    pageSize: queryParams.pageSize,
+    rows: userList.value.map(item => ({ ...item }))
+  }
+}
+
 defineExpose({
-  open
+  open,
+  openForAi
 })
 </script>
 
