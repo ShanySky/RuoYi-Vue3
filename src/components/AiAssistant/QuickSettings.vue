@@ -84,7 +84,7 @@
 <script setup>
 import { refDebounced } from '@vueuse/core'
 import { ElMessage } from 'element-plus'
-import { filterAiModelsByQuery } from '@/ai/modelSearch'
+import { filterAiModelsByQuery, getRecentAiModelIds, suggestAiModels } from '@/ai/modelSearch'
 import {
   getAiProvider, saveAiProvider, testAiProvider, syncAiModels, listAiModels,
   setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning, testAiModelReasoning
@@ -110,10 +110,7 @@ const filteredModels = computed(() => {
     return filterAiModelsByQuery(models.value, debouncedQuery.value, 20)
   }
 
-  const preferred = models.value
-    .filter(item => item.defaultModel === '0' || item.enabled === '0')
-    .sort((a, b) => (a.defaultModel === '0' ? -1 : 0) - (b.defaultModel === '0' ? -1 : 0))
-  return preferred.slice(0, 8)
+  return suggestAiModels(models.value, getRecentAiModelIds(), 8)
 })
 
 function reasoningOptions(model) {
