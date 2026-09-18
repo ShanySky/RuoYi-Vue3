@@ -4,6 +4,36 @@
       <section class="settings-section">
         <div class="section-heading">
           <div>
+            <div class="section-title">我的聊天偏好</div>
+            <div class="section-subtitle">个人偏好跟随当前账号，不影响其他用户。</div>
+          </div>
+        </div>
+
+        <div class="preference-row">
+          <div>
+            <div class="preference-label">聊天字体大小</div>
+            <div class="preference-tip">只调整消息正文、输入框和运行状态文字。</div>
+          </div>
+          <div class="font-options">
+            <el-button
+              v-for="option in fontOptions"
+              :key="option.value"
+              size="small"
+              :type="preferences.chatFontSize === option.value ? 'primary' : 'default'"
+              :plain="preferences.chatFontSize !== option.value"
+              @click="changeChatFontSize(option.value)"
+            >
+              {{ option.label }}
+            </el-button>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-divider" />
+
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
             <div class="section-title">AI 服务连接</div>
             <div class="section-subtitle">保存 Provider 连接信息，再选择真正需要使用的模型。</div>
           </div>
@@ -166,6 +196,7 @@ import { Grid, Loading, Plus, Search, Star, StarFilled } from '@element-plus/ico
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AiRemoteModelPicker from '@/components/AiRemoteModelPicker/index.vue'
 import { filterAiModelsByQuery } from '@/ai/modelSearch'
+import useAiStore from '@/store/modules/ai'
 import {
   addAiModels, detectAiModelCapabilities, getAiProvider, listAiModels, removeAiModel,
   saveAiProvider, setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning,
@@ -173,6 +204,14 @@ import {
 } from '@/api/ai/config'
 
 const emit = defineEmits(['updated'])
+const aiStore = useAiStore()
+const preferences = computed(() => aiStore.preferences)
+const fontOptions = [
+  { value: 'small', label: '小' },
+  { value: 'standard', label: '标准' },
+  { value: 'large', label: '大' },
+  { value: 'xlarge', label: '特大' }
+]
 const provider = reactive({})
 const form = reactive({ name: '默认 AI 服务', baseUrl: '', token: '', enabled: false, timeoutSeconds: 30 })
 const models = ref([])
@@ -240,10 +279,16 @@ async function loadModels() {
 async function reload() {
   initialized.value = false
   try {
-    await Promise.all([loadProvider(), loadModels()])
+    await Promise.all([loadProvider(), loadModels(), aiStore.loadPreferences()])
   } finally {
     initialized.value = true
   }
+}
+
+async function changeChatFontSize(value) {
+  if (preferences.value.chatFontSize === value) return
+  await aiStore.savePreferences({ chatFontSize: value })
+  emit('updated')
 }
 
 async function saveProvider() {
@@ -381,6 +426,11 @@ defineExpose({ reload })
 .quick-settings { height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; }
 .settings-section { padding: 4px 4px 10px; }
+.preference-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preference-label { color: var(--el-text-color-primary); font-size: 12px; }
+.preference-tip { margin-top: 3px; color: var(--el-text-color-secondary); font-size: 10px; line-height: 1.5; }
+.font-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.font-options :deep(.el-button + .el-button) { margin-left: 0; }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .section-title { color: var(--el-text-color-primary); font-size: 14px; font-weight: 600; }
 .section-subtitle { margin-top: 3px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.55; }
