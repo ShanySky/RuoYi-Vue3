@@ -299,6 +299,7 @@ try {
   await page.getByPlaceholder('https://api.example.com/v1').waitFor({ timeout: 15000 })
   await page.getByTestId('ai-assistant-settings').click()
   await page.getByPlaceholder('告诉 AI 你想做什么…').waitFor({ timeout: 15000 })
+  await screenshot('phase3-ai-floating')
 
   console.log('8. Verify Shift+Enter newline and default Enter send')
   const composer = page.getByPlaceholder('告诉 AI 你想做什么…')
@@ -339,10 +340,13 @@ try {
   await page.mouse.up()
   const resizedWidth = await panel.evaluate(el => el.getBoundingClientRect().width)
   assert.ok(resizedWidth >= layout.dockWidth + 40)
+  await screenshot('phase3-ai-dock')
 
   console.log('10. Switch model and reasoning within the same conversation')
   await page.getByTestId('ai-model-picker-trigger').click()
   const picker = page.locator('.ai-model-picker-popper:visible')
+  await picker.waitFor()
+  await screenshot('phase3-ai-model-picker')
   const pickerSearch = picker.getByPlaceholder('输入模型名称，如 gpt、5.6、sol')
   await pickerSearch.fill('secondary')
   await page.waitForTimeout(250)
