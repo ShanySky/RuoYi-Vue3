@@ -1367,11 +1367,80 @@ try {
     const created = await getUser(token, Number(saved.result.userId))
     assert.equal(created.userName, userName)
     assert.equal(created.nickName, `AI E2E ${suffix}`)
-    return { userId: Number(saved.result.userId), userName, password }
+    return {
+      userId: Number(saved.result.userId),
+      userName,
+      password,
+      deptId: Number(activeDept.value),
+      postId: Number(activePost.value),
+      roleId: Number(activeRole.value)
+    }
   }
 
   const tempUserOne = await createTemporaryUser('one')
   const tempUserTwo = await createTemporaryUser('two')
+
+  console.log('31c. User edit covers every safe editable field and all query filters/table selection stay observable')
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_edit_open', { userId: tempUserOne.userId })
+  await invokeCurrentPageTool('page_system_user_edit_set_fields', {
+    nickName: 'AI E2E Edited',
+    deptId: tempUserOne.deptId,
+    phonenumber: '13800138000',
+    email: 'ai-e2e@example.com',
+    sex: '2',
+    status: '0',
+    postIds: [tempUserOne.postId],
+    roleIds: [tempUserOne.roleId],
+    remark: 'R3 F4 full edit acceptance'
+  })
+  await invokeCurrentPageTool('page_system_user_edit_submit', {})
+  const editedRaw = await apiRaw(token, `/system/user/${tempUserOne.userId}`)
+  assert.equal(editedRaw.payload.code, 200)
+  assert.equal(editedRaw.payload.data.nickName, 'AI E2E Edited')
+  assert.equal(editedRaw.payload.data.deptId, tempUserOne.deptId)
+  assert.equal(editedRaw.payload.data.phonenumber, '13800138000')
+  assert.equal(editedRaw.payload.data.email, 'ai-e2e@example.com')
+  assert.equal(editedRaw.payload.data.sex, '2')
+  assert.equal(editedRaw.payload.data.status, '0')
+  assert.equal(editedRaw.payload.data.remark, 'R3 F4 full edit acceptance')
+  assert.ok((editedRaw.payload.postIds || []).map(Number).includes(tempUserOne.postId))
+  assert.ok((editedRaw.payload.roleIds || []).map(Number).includes(tempUserOne.roleId))
+
+  const allFilterSearch = await invokeRegisteredPageTool('/system/user', 'page_system_user_search', {
+    userName: tempUserOne.userName,
+    phonenumber: '13800138000',
+    status: '0',
+    deptId: tempUserOne.deptId,
+    dateRange: ['2020-01-01', '2099-12-31'],
+    pageNum: 1,
+    pageSize: 100
+  })
+  assert.ok((allFilterSearch.result.rows || []).some(item => Number(item.userId) === tempUserOne.userId))
+  const allFilterContext = await page.evaluate(async () => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    return registry.getCurrentPageContext()
+  })
+  assert.equal(allFilterContext.query.userName, tempUserOne.userName)
+  assert.equal(allFilterContext.query.phonenumber, '13800138000')
+  assert.equal(allFilterContext.query.status, '0')
+  assert.equal(Number(allFilterContext.query.deptId), tempUserOne.deptId)
+  assert.deepEqual(allFilterContext.query.dateRange, ['2020-01-01', '2099-12-31'])
+  assert.equal(Number(allFilterContext.query.pageNum), 1)
+  assert.equal(Number(allFilterContext.query.pageSize), 100)
+
+  const tempRow = page.locator('.el-table__row').filter({ hasText: tempUserOne.userName }).first()
+  await tempRow.waitFor({ timeout: 10000 })
+  await tempRow.locator('.el-checkbox').first().click()
+  const selectedContext = await page.evaluate(async () => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    return registry.getCurrentPageContext()
+  })
+  assert.ok((selectedContext.selectedIds || []).map(Number).includes(tempUserOne.userId))
+
+  const viewResult = await invokeCurrentPageTool('page_system_user_view', { userId: tempUserOne.userId })
+  assert.equal(viewResult.result.opened, true)
+  await page.locator('.el-drawer:visible').waitFor({ timeout: 10000 })
+  await page.keyboard.press('Escape')
 
   await invokeRegisteredPageTool('/system/user', 'page_system_user_change_status', {
     userId: tempUserOne.userId,
