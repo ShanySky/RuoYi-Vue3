@@ -1136,9 +1136,24 @@ try {
   assert.match(String(ryToolAttempt.payload.msg || ''), /当前页面不可用的工具|无权/)
   await apiJson(token, '/ai/config/prompts/SYSTEM/restore-default', 'POST')
 
-  console.log('30. Conversation policy persists and expired conversations are actually cleaned')
+  console.log('30. Conversation policy persists, controls user archive/delete and expired conversations are actually cleaned')
   const policyBefore = await apiJson(token, '/ai/admin/policy')
   assert.equal(policyBefore.retentionDays, 90)
+  assert.equal(policyBefore.userArchiveEnabled, true)
+  assert.equal(policyBefore.userDeleteEnabled, false)
+
+  const archiveConversation = await apiJson(token, '/ai/chat/conversations', 'POST', {
+    modelId: primaryModel.modelId,
+    reasoningEffort: 'high',
+    route: '/index'
+  })
+  await apiJson(token, `/ai/chat/conversations/${archiveConversation.conversationId}/archive`, 'PUT')
+  const archivedDetail = await apiJson(token, `/ai/chat/conversations/${archiveConversation.conversationId}`)
+  assert.equal(archivedDetail.conversation.status, 'ARCHIVED')
+  const deleteBlockedByDefault = await apiRaw(token, `/ai/chat/conversations/${archiveConversation.conversationId}`, 'DELETE')
+  assert.notEqual(deleteBlockedByDefault.payload.code, 200,
+    'Default conversation policy must keep user deletion disabled')
+
   const policyChanged = await apiJson(token, '/ai/admin/policy', 'PUT', {
     retentionDays: 91,
     userArchiveEnabled: false,
@@ -1147,6 +1162,19 @@ try {
   assert.equal(policyChanged.retentionDays, 91)
   assert.equal(policyChanged.userArchiveEnabled, false)
   assert.equal(policyChanged.userDeleteEnabled, true)
+
+  const deleteConversation = await apiJson(token, '/ai/chat/conversations', 'POST', {
+    modelId: primaryModel.modelId,
+    reasoningEffort: 'high',
+    route: '/index'
+  })
+  const archiveBlocked = await apiRaw(token, `/ai/chat/conversations/${deleteConversation.conversationId}/archive`, 'PUT')
+  assert.notEqual(archiveBlocked.payload.code, 200,
+    'Disabling user archive must be enforced by the normal Conversation API')
+  await apiJson(token, `/ai/chat/conversations/${deleteConversation.conversationId}`, 'DELETE')
+  const deletedDetail = await apiRaw(token, `/ai/chat/conversations/${deleteConversation.conversationId}`)
+  assert.notEqual(deletedDetail.payload.code, 200,
+    'Enabled user delete must make the soft-deleted conversation unavailable to the owner API')
   await apiJson(token, '/ai/admin/policy', 'PUT', {
     retentionDays: 90,
     userArchiveEnabled: true,
