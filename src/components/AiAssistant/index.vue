@@ -717,6 +717,7 @@ function buildRequest(extra) {
 }
 
 async function driveTurn(extra, generation, signal) {
+  const clientRunKey = extra?.clientRunKey || activeClientRunKey
   let payload = buildRequest(extra)
   for (let i = 0; i < 16; i++) {
     const res = await sendAiTurn(payload, { signal })
