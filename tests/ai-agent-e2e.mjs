@@ -451,6 +451,27 @@ try {
     'UI compaction must create a real persisted Checkpoint before continuing')
   assert.ok((uiCompactionAudit.runs || []).some(run => run.status === 'COMPLETED'),
     'The compaction-triggering Run must continue to completion automatically')
+  console.log('14b. Stop cancels an in-flight compaction without creating an orphan checkpoint')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await compactionComposer.fill('UI_COMPACT_STOP_ONE ' + 's'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).last().waitFor({ timeout: 30000 })
+
+  await compactionComposer.fill('UI_COMPACT_STOP_TWO ' + 't'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('正在整理较早的会话上下文…', { exact: true }).waitFor({ timeout: 15000 })
+  const stopCompactionLabel = await page.locator('.context-label').innerText()
+  const stopCompactionConversationId = Number(stopCompactionLabel.match(/#(\d+)/)?.[1])
+  await page.getByRole('button', { name: '停止', exact: true }).click()
+  await page.getByText('当前 AI 执行已停止', { exact: true }).waitFor({ timeout: 10000 })
+  await page.waitForTimeout(1800)
+  const stopCompactionAudit = await apiJson(token, `/ai/admin/audit/${stopCompactionConversationId}`)
+  assert.ok((stopCompactionAudit.runs || []).some(run =>
+    run.status === 'CANCELLED' && run.cancelReason === 'USER_STOP'),
+    'Stopping during compaction must cancel the COMPACTING Run')
+  assert.equal((stopCompactionAudit.checkpoints || []).length, 0,
+    'A cancelled in-flight compaction must not persist a partial/orphan Checkpoint')
+
   await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/runtime-settings`, 'PUT', {
     contextWindowTokens: 65536,
     autoCompaction: true,
@@ -458,6 +479,7 @@ try {
   })
 
   console.log('15. Stop cancels a slow run and discards late response')
+
   await page.getByTestId('ai-assistant-new-conversation').click()
   await sendByButton('SLOW_STOP_TEST')
   await page.getByRole('button', { name: '停止', exact: true }).waitFor({ timeout: 10000 })
