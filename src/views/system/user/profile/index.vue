@@ -115,7 +115,78 @@ const profileAiCapabilities = createAiCrudPageCapabilities({
         type: 'object',
         properties: {
           nickName: { type: 'string', minLength: 1, maxLength: 30 },
-          phonenumber: { type: 'string', pattern: '^1[3-9][0-9]{9}$' },
+          phonenumber: { type: 'string', pattern: '^1[3-9][0-9]{9} { type: 'string', format: 'email', maxLength: 50 },
+          sex: { type: 'string', enum: ['0', '1'] }
+        },
+        additionalProperties: false
+      },
+      handler: async args => {
+        selectedTab.value = 'userinfo'
+        await nextTick()
+        if (!userInfoRef.value?.setFieldsForAi) throw new Error('基本资料表单尚未就绪')
+        return await userInfoRef.value.setFieldsForAi(args)
+      }
+    },
+    {
+      suffix: 'submit',
+      label: '保存本人基本资料',
+      handler: async () => {
+        selectedTab.value = 'userinfo'
+        await nextTick()
+        if (!userInfoRef.value?.submitCore) throw new Error('基本资料表单尚未就绪')
+        return await userInfoRef.value.submitCore()
+      }
+    },
+    {
+      suffix: 'select_tab',
+      label: '切换个人中心页签',
+      inputSchema: {
+        type: 'object',
+        properties: { tab: { type: 'string', enum: ['userinfo', 'resetPwd'] } },
+        required: ['tab'],
+        additionalProperties: false
+      },
+      handler: async ({ tab }) => {
+        selectedTab.value = tab
+        await nextTick()
+        return {
+          selectedTab: selectedTab.value,
+          note: tab === 'resetPwd' ? '密码输入字段属于敏感凭据，不向 AI Tool 暴露' : undefined
+        }
+      }
+    }
+  ],
+  getContext: () => ({
+    selectedTab: selectedTab.value,
+    user: {
+      userId: state.user.userId,
+      userName: state.user.userName,
+      nickName: state.user.nickName,
+      phonenumber: state.user.phonenumber,
+      email: state.user.email,
+      sex: state.user.sex,
+      deptName: state.user.dept?.deptName,
+      createTime: state.user.createTime
+    },
+    roleGroup: state.roleGroup,
+    postGroup: state.postGroup,
+    sensitiveCapabilitiesExcluded: ['passwordFields', 'avatarBinaryUpload']
+  })
+})
+
+useAiPageTools('system.user.profile', profileAiCapabilities.tools, profileAiCapabilities.getContext, {
+  route: '/user/profile',
+  pageName: '个人中心'
+})
+
+onMounted(() => {
+  const activeTab = route.params && route.params.activeTab
+  if (activeTab) {
+    selectedTab.value = activeTab
+  }
+  getUser()
+})
+</script>
  },
           email: { type: 'string', format: 'email', maxLength: 50 },
           sex: { type: 'string', enum: ['0', '1'] }
