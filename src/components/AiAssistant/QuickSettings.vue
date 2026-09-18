@@ -39,6 +39,76 @@
             @change="changeDoubleEsc"
           />
         </div>
+
+        <div class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">发送快捷键</div>
+            <div class="preference-tip">账号级偏好；换设备登录后继续生效。</div>
+          </div>
+          <el-select :model-value="preferences.sendShortcut" size="small" class="preference-select" @change="changeSendShortcut">
+            <el-option label="Enter 发送" value="enter" />
+            <el-option label="Ctrl+Enter 发送" value="ctrl-enter" />
+          </el-select>
+        </div>
+
+        <div class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">会话历史入口</div>
+            <div class="preference-tip">默认隐藏；开启后聊天标题区显示低干扰历史入口。</div>
+          </div>
+          <el-switch :model-value="preferences.historyEntryVisible" size="small" @change="changeHistoryEntry" />
+        </div>
+
+        <div class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">登录后自动恢复上次会话</div>
+            <div class="preference-tip">默认关闭；恢复后仍可短时撤销。</div>
+          </div>
+          <el-switch :model-value="preferences.autoRestoreLastConversation" size="small" @change="changeAutoRestore" />
+        </div>
+
+        <div class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">AI 默认打开方式</div>
+            <div class="preference-tip">可固定小窗、Dock，或恢复本机上次使用模式。</div>
+          </div>
+          <el-select :model-value="preferences.assistantOpenMode" size="small" class="preference-select" @change="changeOpenMode">
+            <el-option label="小窗" value="floating" />
+            <el-option label="Dock" value="dock" />
+            <el-option label="恢复上次模式" value="last" />
+          </el-select>
+        </div>
+
+        <div class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">我的默认模型</div>
+            <div class="preference-tip">只可选择管理员已开放且当前启用的模型。</div>
+          </div>
+          <el-select :model-value="preferences.defaultModelId" size="small" class="preference-select" clearable @change="changePreferredModel">
+            <el-option
+              v-for="model in enabledPreferenceModels"
+              :key="model.modelId"
+              :label="model.displayName || model.modelCode"
+              :value="model.modelId"
+            />
+          </el-select>
+        </div>
+
+        <div v-if="preferredModel?.reasoningCapability === 'SUPPORTED'" class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">我的默认思考档位</div>
+            <div class="preference-tip">仅显示当前默认模型真实支持的档位。</div>
+          </div>
+          <el-select :model-value="preferences.defaultReasoningEffort || ''" size="small" class="preference-select" @change="changePreferredReasoning">
+            <el-option label="模型默认" value="" />
+            <el-option
+              v-for="effort in reasoningOptions(preferredModel)"
+              :key="effort"
+              :label="effortLabel(effort)"
+              :value="effort"
+            />
+          </el-select>
+        </div>
       </section>
 
       <div class="section-divider" />
@@ -226,6 +296,8 @@ import {
 const emit = defineEmits(['updated'])
 const aiStore = useAiStore()
 const preferences = computed(() => aiStore.preferences)
+const enabledPreferenceModels = computed(() => aiStore.models || [])
+const preferredModel = computed(() => enabledPreferenceModels.value.find(item => item.modelId === preferences.value.defaultModelId) || null)
 const fontOptions = [
   { value: 'small', label: '小' },
   { value: 'standard', label: '标准' },
@@ -301,7 +373,7 @@ async function loadModels() {
 async function reload() {
   initialized.value = false
   try {
-    await Promise.all([loadProvider(), loadModels(), aiStore.loadPreferences()])
+    await Promise.all([loadProvider(), loadModels(), aiStore.loadPreferences(), aiStore.loadModels()])
   } finally {
     initialized.value = true
   }
@@ -315,6 +387,39 @@ async function changeChatFontSize(value) {
 
 async function changeDoubleEsc(value) {
   await aiStore.savePreferences({ doubleEscEnabled: !!value })
+  emit('updated')
+}
+
+async function changeSendShortcut(value) {
+  await aiStore.savePreferences({ sendShortcut: value })
+  try { localStorage.setItem('ai-send-shortcut', value) } catch {}
+  emit('updated')
+}
+
+async function changeHistoryEntry(value) {
+  await aiStore.savePreferences({ historyEntryVisible: !!value })
+  emit('updated')
+}
+
+async function changeAutoRestore(value) {
+  await aiStore.savePreferences({ autoRestoreLastConversation: !!value })
+  emit('updated')
+}
+
+async function changeOpenMode(value) {
+  await aiStore.savePreferences({ assistantOpenMode: value })
+  emit('updated')
+}
+
+async function changePreferredModel(value) {
+  if (!value) return
+  await aiStore.savePreferences({ defaultModelId: value, defaultReasoningEffort: null })
+  await aiStore.loadModels()
+  emit('updated')
+}
+
+async function changePreferredReasoning(value) {
+  await aiStore.savePreferences({ defaultReasoningEffort: value || null })
   emit('updated')
 }
 
@@ -470,6 +575,7 @@ defineExpose({ reload })
 .preference-tip { margin-top: 3px; color: var(--el-text-color-secondary); font-size: 10px; line-height: 1.5; }
 .font-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .font-options :deep(.el-button + .el-button) { margin-left: 0; }
+.preference-select { width: 150px; flex: 0 0 150px; }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .section-title { color: var(--el-text-color-primary); font-size: 14px; font-weight: 600; }
 .section-subtitle { margin-top: 3px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.55; }
