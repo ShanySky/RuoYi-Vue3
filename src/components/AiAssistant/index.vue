@@ -40,7 +40,6 @@
       <div class="panel-content">
         <quick-settings
           v-if="settingsOpen"
-          ref="quickSettingsRef"
           class="settings-view"
           @updated="handleSettingsUpdated"
         />
@@ -142,7 +141,6 @@ const reasoningEffort = ref(null)
 const conversationId = ref(undefined)
 const messages = ref([])
 const messagePane = ref(null)
-const quickSettingsRef = ref(null)
 const sendShortcut = ref(localStorage.getItem('ai-send-shortcut') === 'ctrl-enter' ? 'ctrl-enter' : 'enter')
 let seq = 0
 
@@ -192,12 +190,8 @@ function toggleMode() {
   mode.value = 'dock'
 }
 
-async function toggleSettings() {
+function toggleSettings() {
   settingsOpen.value = !settingsOpen.value
-  if (settingsOpen.value) {
-    await nextTick()
-    await quickSettingsRef.value?.reload?.()
-  }
 }
 
 async function handleSettingsUpdated() {
