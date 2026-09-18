@@ -1,7 +1,7 @@
 <template>
   <el-popover v-model:visible="visible" placement="top-start" :width="340" trigger="click" popper-class="ai-model-picker-popper">
     <template #reference>
-      <el-button class="model-trigger" text :disabled="disabled">
+      <el-button data-testid="ai-model-picker-trigger" class="model-trigger" text :disabled="disabled">
         <span class="model-trigger-label">{{ selectedLabel }}</span>
         <span class="model-trigger-arrow">⌄</span>
       </el-button>
