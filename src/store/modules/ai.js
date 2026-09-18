@@ -60,6 +60,7 @@ const useAiStore = defineStore('ai-assistant', {
     history: [],
     restoring: false,
     modelFallbackNotice: null,
+    lifecycleEpoch: 0,
     messageSeq: 0
   }),
   getters: {
@@ -193,6 +194,7 @@ const useAiStore = defineStore('ai-assistant', {
       }
     },
     async prepareLogout() {
+      this.lifecycleEpoch += 1
       try {
         await cancelAllAiRuns('USER_LOGOUT')
       } catch (error) {
