@@ -16,7 +16,7 @@
       v-else
       data-testid="ai-assistant-panel"
       :class="['ai-panel', mode]"
-      :style="mode === 'dock' ? { width: dockWidth + 'px' } : undefined"
+      :style="panelStyle"
     >
       <div v-if="mode === 'dock'" class="dock-resizer" @pointerdown="startResize" />
 
@@ -188,9 +188,21 @@ import QuickSettings from './QuickSettings.vue'
 import { listEnabledAiModels } from '@/api/ai/config'
 import { sendAiTurn } from '@/api/ai/chat'
 import { getCurrentPageContext, getFrontendToolDefinitions, invokeFrontendTool } from '@/ai/toolRegistry'
+import useAiStore from '@/store/modules/ai'
 
 const emit = defineEmits(['dock-change'])
 const route = useRoute()
+const aiStore = useAiStore()
+const chatFontSize = computed(() => ({
+  small: '12px',
+  standard: '13px',
+  large: '14px',
+  xlarge: '15px'
+}[aiStore.preferences.chatFontSize] || '13px'))
+const panelStyle = computed(() => ({
+  ...(mode.value === 'dock' ? { width: dockWidth.value + 'px' } : {}),
+  '--ai-chat-font-size': chatFontSize.value
+}))
 const mode = ref('closed')
 const settingsOpen = ref(false)
 const dockWidth = ref(Number(localStorage.getItem('ai-dock-width')) || 560)
@@ -257,7 +269,7 @@ function toggleSettings() {
 }
 
 async function handleSettingsUpdated() {
-  await loadModels()
+  await Promise.all([loadModels(), aiStore.loadPreferences()])
 }
 
 function newConversation() {
@@ -393,7 +405,9 @@ function startResize(event) {
 }
 
 watch([mode, dockWidth], emitDockState, { immediate: true })
-onMounted(loadModels)
+onMounted(async () => {
+  await Promise.all([loadModels(), aiStore.loadPreferences()])
+})
 </script>
 
 <style scoped>
@@ -585,7 +599,7 @@ onMounted(loadModels)
   background: var(--el-color-primary-light-9);
   border-color: var(--el-color-primary-light-8);
 }
-.message-text { white-space: pre-wrap; font-size: 13px; line-height: 1.65; }
+.message-text { white-space: pre-wrap; font-size: var(--ai-chat-font-size, 13px); line-height: 1.65; }
 
 .tool-status {
   display: flex;
@@ -598,7 +612,7 @@ onMounted(loadModels)
   color: var(--el-text-color-secondary);
   background: var(--el-fill-color-light);
   border-radius: 5px;
-  font-size: 10px;
+  font-size: calc(var(--ai-chat-font-size, 13px) - 3px);
 }
 .tool-status .el-icon { color: var(--el-color-success); }
 
@@ -612,7 +626,7 @@ onMounted(loadModels)
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 7px;
-  font-size: 11px;
+  font-size: calc(var(--ai-chat-font-size, 13px) - 2px);
 }
 .typing-dots { display: inline-flex; gap: 3px; }
 .typing-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--el-text-color-placeholder); animation: ai-dot 1.2s infinite ease-in-out; }
@@ -639,7 +653,7 @@ onMounted(loadModels)
   background: transparent;
   border: 0;
   box-shadow: none;
-  font-size: 13px;
+  font-size: var(--ai-chat-font-size, 13px);
   line-height: 1.6;
 }
 .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
