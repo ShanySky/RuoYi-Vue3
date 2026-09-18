@@ -548,12 +548,14 @@ function handleComposerKeydown(event) {
 
 async function ensureConversation() {
   if (conversationId.value) return conversationId.value
+  const lifecycleEpoch = aiStore.lifecycleEpoch
   if (!conversationCreationPromise) {
     conversationCreationPromise = createAiConversation({
       modelId: modelId.value,
       reasoningEffort: reasoningEffort.value || null,
       route: route.path
     }).then(res => {
+      if (lifecycleEpoch !== aiStore.lifecycleEpoch) throw new Error('当前登录会话已失效')
       const id = res.data?.conversationId
       if (!id) throw new Error('创建 AI 会话失败')
       conversationId.value = id
@@ -629,8 +631,10 @@ async function sendMessage() {
 
   const steering = busy.value
   if (steering) cancelPendingConfirmation()
+  const lifecycleEpoch = aiStore.lifecycleEpoch
   try {
     await ensureConversation()
+    if (lifecycleEpoch !== aiStore.lifecycleEpoch) return
   } catch (error) {
     ElMessage.error(error?.message || '创建 AI 会话失败')
     return
@@ -657,12 +661,12 @@ async function sendMessage() {
   workingText.value = steering ? '正在根据最新补充重新规划…' : 'AI 正在理解你的请求…'
 
   try {
-    await driveTurn({ userMessage: text, clientRunKey }, generation, controller.signal)
+    await driveTurn({ userMessage: text, clientRunKey }, generation, controller.signal, lifecycleEpoch)
   } catch (error) {
-    if (generation !== runGeneration || isAbortError(error)) return
+    if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch || isAbortError(error)) return
     append('assistant', `执行失败：${error?.message || error}`)
   } finally {
-    if (generation === runGeneration) {
+    if (generation === runGeneration && lifecycleEpoch === aiStore.lifecycleEpoch) {
       busy.value = false
       stopping.value = false
       activeAbortController = null
@@ -725,12 +729,12 @@ function buildRequest(extra) {
   return payload
 }
 
-async function driveTurn(extra, generation, signal) {
+async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lifecycleEpoch) {
   const clientRunKey = extra?.clientRunKey || activeClientRunKey
   let payload = buildRequest(extra)
   for (let i = 0; i < 16; i++) {
     const res = await sendAiTurn(payload, { signal })
-    if (generation !== runGeneration) return
+    if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
 
     const data = res.data || {}
     if (data.conversationId) conversationId.value = data.conversationId
@@ -758,26 +762,26 @@ async function driveTurn(extra, generation, signal) {
     try {
       if (call.riskLevel === 'WRITE' || call.riskLevel === 'DANGEROUS_WRITE') {
         const confirmed = await requestWriteConfirmation(call)
-        if (generation !== runGeneration) return
+        if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
         if (!confirmed) throw 'cancel'
       }
-      if (generation !== runGeneration) return
+      if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
       const args = call.arguments ? JSON.parse(call.arguments) : {}
       result = await invokeFrontendTool(call.name, args, {
         route: payload.route,
         pageInstanceId: payload.pageInstanceId,
         pageVersion: payload.pageVersion
       })
-      if (generation !== runGeneration) return
+      if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
       append('tool', `${call.description || call.name}：已执行`)
     } catch (e) {
-      if (generation !== runGeneration) return
+      if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
       success = false
       error = e === 'cancel' || e === 'close' ? '用户取消了操作' : (e?.message || String(e))
       append('tool', `${call.description || call.name}：${error}`)
     }
 
-    if (generation !== runGeneration) return
+    if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
     workingText.value = 'AI 正在读取页面执行结果…'
     payload = buildRequest({ toolResult: { callId: call.callId, success, result, error } })
   }
