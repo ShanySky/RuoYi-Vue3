@@ -151,6 +151,7 @@ import router from "@/router"
 import importTable from "./importTable"
 import createTable from "./createTable"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { useAiPageTools } from "@/ai/toolRegistry"
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
