@@ -115,13 +115,7 @@ const profileAiCapabilities = createAiCrudPageCapabilities({
         type: 'object',
         properties: {
           nickName: { type: 'string', minLength: 1, maxLength: 30 },
-          phonenumber: { type: 'string', pattern: '^1[3-9][0-9]{9}
-  if (activeTab) {
-    selectedTab.value = activeTab
-  }
-  getUser()
-})
-</script>
+          phonenumber: { type: 'string', pattern: '^1[3-9][0-9]{9}$' },
  },
           email: { type: 'string', format: 'email', maxLength: 50 },
           sex: { type: 'string', enum: ['0', '1'] }
