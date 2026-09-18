@@ -164,6 +164,8 @@
 import NoticeDetailView from "@/layout/components/HeaderNotice/DetailView"
 import ReadUsersDialog from "./ReadUsers"
 import { listNotice, getNotice, delNotice, addNotice, updateNotice } from "@/api/system/notice"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_notice_status, sys_notice_type } = useDict("sys_notice_status", "sys_notice_type")
@@ -198,9 +200,11 @@ const { queryParams, form, rules } = toRefs(data)
 /** 查询公告列表 */
 function getList() {
   loading.value = true
-  listNotice(queryParams.value).then(response => {
+  return listNotice(queryParams.value).then(response => {
     noticeList.value = response.rows
     total.value = response.total
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -226,13 +230,13 @@ function reset() {
 /** 搜索按钮操作 */
 function handleQuery() {
   queryParams.value.pageNum = 1
-  getList()
+  return getList()
 }
 
 /** 重置按钮操作 */
 function resetQuery() {
   proxy.resetForm("queryRef")
-  handleQuery()
+  return handleQuery()
 }
 
 /** 多选框选中数据 */
@@ -253,32 +257,33 @@ function handleAdd() {
 function handleUpdate(row) {
   reset()
   const noticeId = row.noticeId || ids.value
-  getNotice(noticeId).then(response => {
+  return getNotice(noticeId).then(response => {
     form.value = response.data
     open.value = true
     title.value = "修改公告"
+    return response.data
   })
 }
 
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["noticeRef"].validate(valid => {
-    if (valid) {
-      if (form.value.noticeId != undefined) {
-        updateNotice(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
-          open.value = false
-          getList()
-        })
-      } else {
-        addNotice(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
-          open.value = false
-          getList()
-        })
-      }
-    }
+function submitFormCore() {
+  return new Promise((resolve, reject) => {
+    proxy.$refs["noticeRef"].validate(valid => {
+      if (!valid) return reject(new Error("表单校验未通过"))
+      const editing = form.value.noticeId != undefined
+      const savedNoticeId = form.value.noticeId
+      const action = editing ? updateNotice(form.value) : addNotice(form.value)
+      action.then(() => {
+        proxy.$modal.msgSuccess(editing ? "修改成功" : "新增成功")
+        open.value = false
+        getList().then(() => resolve({ success: true, noticeId: savedNoticeId }))
+      }).catch(reject)
+    })
   })
+}
+
+function submitForm() {
+  submitFormCore().catch(() => {})
 }
 
 /** 查看公告详情 */
@@ -301,6 +306,93 @@ function handleDelete(row) {
     proxy.$modal.msgSuccess("删除成功")
   }).catch(() => {})
 }
+
+
+const noticeAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '通知公告',
+  toolPrefix: 'page_system_notice',
+  queryFields: [
+    { key: 'noticeTitle', label: '公告标题' },
+    { key: 'createBy', label: '创建者' },
+    { key: 'status', label: '状态', options: ['0', '1'] },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' }
+  ],
+  formFields: [
+    { key: 'noticeTitle', label: '公告标题', required: true },
+    { key: 'noticeType', label: '公告类型', required: true, options: ['1', '2'] },
+    { key: 'status', label: '状态', options: ['0', '1'] },
+    { key: 'noticeContent', label: '公告内容' }
+  ],
+  query: {
+    permission: 'system:notice:list',
+    apply: async args => {
+      for (const key of ['noticeTitle', 'createBy', 'status', 'pageNum', 'pageSize']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+    },
+    run: getList,
+    reset: resetQuery
+  },
+  form: {
+    addPermission: 'system:notice:add',
+    editPermission: 'system:notice:edit',
+    recordIdKey: 'noticeId',
+    recordIdLabel: '公告ID',
+    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+    openEdit: noticeId => handleUpdate({ noticeId }),
+    snapshot: () => ({ ...form.value }),
+    setFields: async args => {
+      const allowed = ['noticeTitle', 'noticeType', 'status', 'noticeContent']
+      const changedFields = []
+      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+        form.value[key] = args[key]
+        changedFields.push(key)
+      }
+      await nextTick()
+      return { changedFields, saved: false, form: { ...form.value } }
+    },
+    submit: submitFormCore
+  },
+  actions: [
+    {
+      suffix: 'view',
+      permission: 'system:notice:list',
+      label: '查看公告详情',
+      inputSchema: { type: 'object', properties: { noticeId: { type: 'integer' } }, required: ['noticeId'], additionalProperties: false },
+      handler: async ({ noticeId }) => {
+        const row = noticeList.value.find(item => item.noticeId === noticeId)
+        if (!row) throw new Error('当前列表中未找到该公告')
+        handleViewData(row)
+        return { opened: true, noticeId }
+      }
+    },
+    {
+      suffix: 'delete',
+      permission: 'system:notice:remove',
+      label: '删除公告',
+      inputSchema: { type: 'object', properties: { noticeIds: { type: 'array', items: { type: 'integer' } } }, required: ['noticeIds'], additionalProperties: false },
+      handler: async ({ noticeIds }) => {
+        if (!Array.isArray(noticeIds) || !noticeIds.length) throw new Error('没有可删除的公告ID')
+        await delNotice(noticeIds.join(','))
+        await getList()
+        return { deletedNoticeIds: noticeIds }
+      }
+    }
+  ],
+  getRows: () => noticeList.value.slice(0, 50).map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value },
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+    open: open.value,
+    form: open.value ? { ...form.value } : null
+  })
+})
+
+useAiPageTools('system-notice', noticeAiCapabilities.tools, noticeAiCapabilities.getContext, {
+  route: '/system/notice',
+  pageName: '通知公告'
+})
 
 getList()
 </script>

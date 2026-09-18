@@ -155,6 +155,8 @@
 
 <script setup name="Dept">
 import { listDept, getDept, delDept, addDept, updateDept, updateDeptSort, listDeptExcludeChild } from "@/api/system/dept"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_normal_disable } = useDict("sys_normal_disable")
@@ -189,9 +191,11 @@ const { queryParams, form, rules } = toRefs(data)
 /** 查询部门列表 */
 function getList() {
   loading.value = true
-  listDept(queryParams.value).then(response => {
+  return listDept(queryParams.value).then(response => {
     deptList.value = proxy.handleTree(response.data, "deptId")
     recordOriginalOrders(deptList.value)
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -219,13 +223,13 @@ function reset() {
 
 /** 搜索按钮操作 */
 function handleQuery() {
-  getList()
+  return getList()
 }
 
 /** 重置按钮操作 */
 function resetQuery() {
   proxy.resetForm("queryRef")
-  handleQuery()
+  return handleQuery()
 }
 
 /** 新增按钮操作 */
@@ -253,35 +257,36 @@ function toggleExpandAll() {
 /** 修改按钮操作 */
 function handleUpdate(row) {
   reset()
-  listDeptExcludeChild(row.deptId).then(response => {
+  const optionsPromise = listDeptExcludeChild(row.deptId).then(response => {
     deptOptions.value = proxy.handleTree(response.data, "deptId")
   })
-  getDept(row.deptId).then(response => {
+  return Promise.all([optionsPromise, getDept(row.deptId)]).then(([, response]) => {
     form.value = response.data
     open.value = true
     title.value = "修改部门"
+    return response.data
   })
 }
 
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["deptRef"].validate(valid => {
-    if (valid) {
-      if (form.value.deptId != undefined) {
-        updateDept(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
-          open.value = false
-          getList()
-        })
-      } else {
-        addDept(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
-          open.value = false
-          getList()
-        })
-      }
-    }
+function submitFormCore() {
+  return new Promise((resolve, reject) => {
+    proxy.$refs["deptRef"].validate(valid => {
+      if (!valid) return reject(new Error("表单校验未通过"))
+      const editing = form.value.deptId != undefined
+      const savedDeptId = form.value.deptId
+      const action = editing ? updateDept(form.value) : addDept(form.value)
+      action.then(() => {
+        proxy.$modal.msgSuccess(editing ? "修改成功" : "新增成功")
+        open.value = false
+        getList().then(() => resolve({ success: true, deptId: savedDeptId }))
+      }).catch(reject)
+    })
   })
+}
+
+function submitForm() {
+  submitFormCore().catch(() => {})
 }
 
 /** 递归记录原始排序 */
@@ -329,6 +334,79 @@ function handleDelete(row) {
     proxy.$modal.msgSuccess("删除成功")
   }).catch(() => {})
 }
+
+
+const deptAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '部门管理',
+  toolPrefix: 'page_system_dept',
+  queryFields: [
+    { key: 'deptName', label: '部门名称' },
+    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' }
+  ],
+  formFields: [
+    { key: 'parentId', label: '上级部门ID', type: 'integer', required: true },
+    { key: 'deptName', label: '部门名称', required: true, inputSchema: { type: 'string', minLength: 1, maxLength: 30 } },
+    { key: 'orderNum', label: '显示排序', type: 'integer', required: true, inputSchema: { type: 'integer', minimum: 0 } },
+    { key: 'leader', label: '负责人' },
+    { key: 'phone', label: '联系电话', inputSchema: { type: 'string', pattern: '^1[3-9][0-9]{9}
+ } },
+    { key: 'email', label: '邮箱', inputSchema: { type: 'string', format: 'email' } },
+    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' }
+  ],
+  query: {
+    permission: 'system:dept:list',
+    apply: async args => {
+      for (const key of ['deptName', 'status']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+    },
+    run: getList,
+    reset: resetQuery
+  },
+  form: {
+    addPermission: 'system:dept:add',
+    editPermission: 'system:dept:edit',
+    recordIdKey: 'deptId',
+    recordIdLabel: '部门ID',
+    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+    openEdit: deptId => handleUpdate({ deptId }),
+    snapshot: () => ({ ...form.value }),
+    setFields: async args => {
+      const allowed = ['parentId', 'deptName', 'orderNum', 'leader', 'phone', 'email', 'status']
+      const changedFields = []
+      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+        form.value[key] = args[key]
+        changedFields.push(key)
+      }
+      await nextTick()
+      return { changedFields, saved: false, form: { ...form.value } }
+    },
+    submit: submitFormCore
+  },
+  actions: [
+    {
+      suffix: 'delete',
+      permission: 'system:dept:remove',
+      label: '删除部门',
+      inputSchema: { type: 'object', properties: { deptId: { type: 'integer' } }, required: ['deptId'], additionalProperties: false },
+      handler: async ({ deptId }) => {
+        await delDept(deptId)
+        await getList()
+        return { deletedDeptId: deptId }
+      }
+    }
+  ],
+  getRows: () => deptList.value.slice(0, 50).map(item => ({ ...item })),
+  getContext: () => ({
+    query: { ...queryParams.value },
+    treeRows: deptList.value.slice(0, 50).map(item => ({ ...item })),
+    open: open.value,
+    form: open.value ? { ...form.value } : null
+  })
+})
+
+useAiPageTools('system-dept', deptAiCapabilities.tools, deptAiCapabilities.getContext, {
+  route: '/system/dept',
+  pageName: '部门管理'
+})
 
 getList()
 </script>

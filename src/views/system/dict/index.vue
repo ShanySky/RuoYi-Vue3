@@ -184,6 +184,8 @@
 import DictDataDrawer from './detail'
 import useDictStore from '@/store/modules/dict'
 import { listType, getType, delType, addType, updateType, refreshCache } from "@/api/system/dict/type"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_normal_disable } = useDict("sys_normal_disable")
@@ -221,9 +223,11 @@ const { queryParams, form, rules } = toRefs(data)
 /** 查询字典类型列表 */
 function getList() {
   loading.value = true
-  listType(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
+  return listType(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
     typeList.value = response.rows
     total.value = response.total
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -249,14 +253,14 @@ function reset() {
 /** 搜索按钮操作 */
 function handleQuery() {
   queryParams.value.pageNum = 1
-  getList()
+  return getList()
 }
 
 /** 重置按钮操作 */
 function resetQuery() {
   dateRange.value = []
   proxy.resetForm("queryRef")
-  handleQuery()
+  return handleQuery()
 }
 
 /** 新增按钮操作 */
@@ -288,32 +292,33 @@ function handleDataList(row) {
 function handleUpdate(row) {
   reset()
   const dictId = row.dictId || ids.value
-  getType(dictId).then(response => {
+  return getType(dictId).then(response => {
     form.value = response.data
     open.value = true
     title.value = "修改字典类型"
+    return response.data
   })
 }
 
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["dictRef"].validate(valid => {
-    if (valid) {
-      if (form.value.dictId != undefined) {
-        updateType(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
-          open.value = false
-          getList()
-        })
-      } else {
-        addType(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
-          open.value = false
-          getList()
-        })
-      }
-    }
+function submitFormCore() {
+  return new Promise((resolve, reject) => {
+    proxy.$refs["dictRef"].validate(valid => {
+      if (!valid) return reject(new Error("表单校验未通过"))
+      const editing = form.value.dictId != undefined
+      const savedDictId = form.value.dictId
+      const action = editing ? updateType(form.value) : addType(form.value)
+      action.then(() => {
+        proxy.$modal.msgSuccess(editing ? "修改成功" : "新增成功")
+        open.value = false
+        getList().then(() => resolve({ success: true, dictId: savedDictId }))
+      }).catch(reject)
+    })
   })
+}
+
+function submitForm() {
+  submitFormCore().catch(() => {})
 }
 
 /** 删除按钮操作 */
@@ -341,6 +346,117 @@ function handleRefreshCache() {
     useDictStore().cleanDict()
   })
 }
+
+
+const dictAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '字典类型',
+  toolPrefix: 'page_system_dict',
+  queryFields: [
+    { key: 'dictName', label: '字典名称' },
+    { key: 'dictType', label: '字典类型' },
+    { key: 'status', label: '状态', options: ['0', '1'] },
+    { key: 'dateRange', label: '创建时间范围', type: 'array', itemType: 'string' },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' }
+  ],
+  formFields: [
+    { key: 'dictName', label: '字典名称', required: true },
+    { key: 'dictType', label: '字典类型', required: true },
+    { key: 'status', label: '状态', options: ['0', '1'] },
+    { key: 'remark', label: '备注' }
+  ],
+  query: {
+    permission: 'system:dict:list',
+    apply: async args => {
+      for (const key of ['dictName', 'dictType', 'status', 'pageNum', 'pageSize']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+    },
+    run: getList,
+    reset: resetQuery
+  },
+  form: {
+    addPermission: 'system:dict:add',
+    editPermission: 'system:dict:edit',
+    recordIdKey: 'dictId',
+    recordIdLabel: '字典ID',
+    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+    openEdit: dictId => handleUpdate({ dictId }),
+    snapshot: () => ({ ...form.value }),
+    setFields: async args => {
+      const allowed = ['dictName', 'dictType', 'status', 'remark']
+      const changedFields = []
+      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+        form.value[key] = args[key]
+        changedFields.push(key)
+      }
+      await nextTick()
+      return { changedFields, saved: false, form: { ...form.value } }
+    },
+    submit: submitFormCore
+  },
+  actions: [
+    {
+      suffix: 'view',
+      permission: 'system:dict:list',
+      label: '查看字典类型详情',
+      inputSchema: { type: 'object', properties: { dictId: { type: 'integer' } }, required: ['dictId'], additionalProperties: false },
+      handler: async ({ dictId }) => {
+        const row = typeList.value.find(item => item.dictId === dictId)
+        if (!row) throw new Error('当前列表中未找到该字典类型')
+        handleViewData(row)
+        return { opened: true, dictId }
+      }
+    },
+    {
+      suffix: 'delete',
+      permission: 'system:dict:remove',
+      label: '删除字典类型',
+      inputSchema: { type: 'object', properties: { dictIds: { type: 'array', items: { type: 'integer' } } }, required: ['dictIds'], additionalProperties: false },
+      handler: async ({ dictIds }) => {
+        if (!Array.isArray(dictIds) || !dictIds.length) throw new Error('没有可删除的字典ID')
+        await delType(dictIds.join(','))
+        await getList()
+        return { deletedDictIds: dictIds }
+      }
+    },
+    {
+      suffix: 'export',
+      permission: 'system:dict:export',
+      label: '按当前查询条件导出字典类型',
+      handler: async () => {
+        handleExport()
+        return { started: true, query: { ...queryParams.value }, dateRange: [...dateRange.value] }
+      }
+    },
+    {
+      suffix: 'refresh_cache',
+      permission: 'system:dict:remove',
+      label: '刷新字典缓存',
+      handler: async () => {
+        await refreshCache()
+        useDictStore().cleanDict()
+        proxy.$modal.msgSuccess("刷新成功")
+        return { refreshed: true }
+      }
+    }
+  ],
+  getRows: () => typeList.value.slice(0, 50).map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value },
+    dateRange: [...dateRange.value],
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+    open: open.value,
+    drawerVisible: drawerVisible.value,
+    form: open.value ? { ...form.value } : null
+  })
+})
+
+useAiPageTools('system-dict', dictAiCapabilities.tools, dictAiCapabilities.getContext, {
+  route: '/system/dict',
+  pageName: '字典类型'
+})
 
 getList()
 </script>

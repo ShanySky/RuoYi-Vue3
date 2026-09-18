@@ -309,6 +309,8 @@
 import { addMenu, delMenu, getMenu, listMenu, updateMenu, updateMenuSort } from "@/api/system/menu"
 import SvgIcon from "@/components/SvgIcon"
 import IconSelect from "@/components/IconSelect"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_show_hide, sys_normal_disable } = useDict("sys_show_hide", "sys_normal_disable")
@@ -342,9 +344,11 @@ const { queryParams, form, rules } = toRefs(data)
 /** 查询菜单列表 */
 function getList() {
   loading.value = true
-  listMenu(queryParams.value).then(response => {
+  return listMenu(queryParams.value).then(response => {
     menuList.value = proxy.handleTree(response.data, "menuId")
     recordOriginalOrders(menuList.value)
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -394,13 +398,13 @@ function selected(name) {
 
 /** 搜索按钮操作 */
 function handleQuery() {
-  getList()
+  return getList()
 }
 
 /** 重置按钮操作 */
 function resetQuery() {
   proxy.resetForm("queryRef")
-  handleQuery()
+  return handleQuery()
 }
 
 /** 新增按钮操作 */
@@ -429,32 +433,33 @@ function toggleExpandAll() {
 async function handleUpdate(row) {
   reset()
   await getTreeselect()
-  getMenu(row.menuId).then(response => {
+  return getMenu(row.menuId).then(response => {
     form.value = response.data
     open.value = true
     title.value = "修改菜单"
+    return response.data
   })
 }
 
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["menuRef"].validate(valid => {
-    if (valid) {
-      if (form.value.menuId != undefined) {
-        updateMenu(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
-          open.value = false
-          getList()
-        })
-      } else {
-        addMenu(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
-          open.value = false
-          getList()
-        })
-      }
-    }
+function submitFormCore() {
+  return new Promise((resolve, reject) => {
+    proxy.$refs["menuRef"].validate(valid => {
+      if (!valid) return reject(new Error("表单校验未通过"))
+      const editing = form.value.menuId != undefined
+      const savedMenuId = form.value.menuId
+      const action = editing ? updateMenu(form.value) : addMenu(form.value)
+      action.then(() => {
+        proxy.$modal.msgSuccess(editing ? "修改成功" : "新增成功")
+        open.value = false
+        getList().then(() => resolve({ success: true, menuId: savedMenuId }))
+      }).catch(reject)
+    })
   })
+}
+
+function submitForm() {
+  submitFormCore().catch(() => {})
 }
 
 
@@ -503,6 +508,85 @@ function handleDelete(row) {
     proxy.$modal.msgSuccess("删除成功")
   }).catch(() => {})
 }
+
+
+const menuAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '菜单管理',
+  toolPrefix: 'page_system_menu',
+  queryFields: [
+    { key: 'menuName', label: '菜单名称' },
+    { key: 'visible', label: '显示状态', options: ['0', '1'], description: '0显示，1隐藏' }
+  ],
+  formFields: [
+    { key: 'parentId', label: '上级菜单ID', type: 'integer' },
+    { key: 'menuType', label: '菜单类型', options: ['M', 'C', 'F'], required: true },
+    { key: 'icon', label: '菜单图标' },
+    { key: 'orderNum', label: '显示排序', type: 'integer', required: true, inputSchema: { type: 'integer', minimum: 0 } },
+    { key: 'menuName', label: '菜单名称', required: true },
+    { key: 'routeName', label: '路由名称' },
+    { key: 'isFrame', label: '是否外链', options: ['0', '1'], description: '0是，1否' },
+    { key: 'path', label: '路由地址' },
+    { key: 'component', label: '组件路径' },
+    { key: 'perms', label: '权限字符' },
+    { key: 'query', label: '路由参数' },
+    { key: 'isCache', label: '是否缓存', options: ['0', '1'], description: '0缓存，1不缓存' },
+    { key: 'visible', label: '显示状态', options: ['0', '1'] },
+    { key: 'status', label: '菜单状态', options: ['0', '1'] }
+  ],
+  query: {
+    permission: 'system:menu:list',
+    apply: async args => {
+      for (const key of ['menuName', 'visible']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+    },
+    run: getList,
+    reset: resetQuery
+  },
+  form: {
+    addPermission: 'system:menu:add',
+    editPermission: 'system:menu:edit',
+    recordIdKey: 'menuId',
+    recordIdLabel: '菜单ID',
+    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+    openEdit: menuId => handleUpdate({ menuId }),
+    snapshot: () => ({ ...form.value }),
+    setFields: async args => {
+      const allowed = ['parentId', 'menuType', 'icon', 'orderNum', 'menuName', 'routeName', 'isFrame', 'path', 'component', 'perms', 'query', 'isCache', 'visible', 'status']
+      const changedFields = []
+      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+        form.value[key] = args[key]
+        changedFields.push(key)
+      }
+      await nextTick()
+      return { changedFields, saved: false, form: { ...form.value } }
+    },
+    submit: submitFormCore
+  },
+  actions: [
+    {
+      suffix: 'delete',
+      permission: 'system:menu:remove',
+      label: '删除菜单',
+      inputSchema: { type: 'object', properties: { menuId: { type: 'integer' } }, required: ['menuId'], additionalProperties: false },
+      handler: async ({ menuId }) => {
+        await delMenu(menuId)
+        await getList()
+        return { deletedMenuId: menuId }
+      }
+    }
+  ],
+  getRows: () => menuList.value.slice(0, 50).map(item => ({ ...item })),
+  getContext: () => ({
+    query: { ...queryParams.value },
+    treeRows: menuList.value.slice(0, 50).map(item => ({ ...item })),
+    open: open.value,
+    form: open.value ? { ...form.value } : null
+  })
+})
+
+useAiPageTools('system-menu', menuAiCapabilities.tools, menuAiCapabilities.getContext, {
+  route: '/system/menu',
+  pageName: '菜单管理'
+})
 
 getList()
 </script>
