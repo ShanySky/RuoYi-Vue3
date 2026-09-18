@@ -198,7 +198,7 @@ import { filterAiModelsByQuery } from '@/ai/modelSearch'
 import {
   addAiModels, detectAiModelCapabilities, getAiProvider, listAiModels, removeAiModel,
   saveAiProvider, setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning,
-  testAiModelChat, testAiProvider
+  testAiModelChat, testAiModelLoad
 } from '@/api/ai/config'
 
 const providerRef = ref(null)
@@ -288,7 +288,7 @@ async function testModelLoad() {
   await providerRef.value.validate()
   testingLoad.value = true
   try {
-    const res = await testAiProvider({ ...form, token: form.token || undefined, timeoutSeconds: 30 })
+    const res = await testAiModelLoad({ ...form, token: form.token || undefined, timeoutSeconds: 30 })
     remoteModels.value = Array.isArray(res.data) ? res.data : []
     loadStatus.value = 'success'
     loadMessage.value = `模型加载成功：发现 ${remoteModels.value.length} 个远端模型。请选择需要加入系统的模型。`
