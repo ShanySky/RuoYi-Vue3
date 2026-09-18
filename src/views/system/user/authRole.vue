@@ -47,6 +47,8 @@
 
 <script setup name="AuthRole">
 import { getAuthRole, updateAuthRole } from "@/api/system/user"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
@@ -92,32 +94,107 @@ function close() {
 }
 
 /** 提交按钮 */
-function submitForm() {
+function submitFormCore(closeAfter = true) {
   const userId = form.value.userId
   const rIds = roleIds.value.join(",")
-  updateAuthRole({ userId: userId, roleIds: rIds }).then(() => {
+  return updateAuthRole({ userId, roleIds: rIds }).then(() => {
     proxy.$modal.msgSuccess("授权成功")
-    close()
+    if (closeAfter) close()
+    return { success: true, userId, roleIds: [...roleIds.value] }
   })
 }
 
-(() => {
+function submitForm() {
+  submitFormCore(true).catch(() => {})
+}
+
+function loadUserRoles() {
   const userId = route.params && route.params.userId
-  if (userId) {
-    loading.value = true
-    getAuthRole(userId).then(response => {
-      form.value = response.user
-      roles.value = response.roles
-      total.value = roles.value.length
-      nextTick(() => {
-        roles.value.forEach(row => {
-          if (row.flag) {
-            proxy.$refs["roleRef"].toggleRowSelection(row)
-          }
-        })
+  if (!userId) return Promise.resolve(null)
+  loading.value = true
+  return getAuthRole(userId).then(response => {
+    form.value = response.user
+    roles.value = response.roles
+    total.value = roles.value.length
+    return nextTick().then(() => {
+      proxy.$refs["roleRef"]?.clearSelection?.()
+      roles.value.forEach(row => {
+        if (row.flag) proxy.$refs["roleRef"]?.toggleRowSelection?.(row, true)
       })
-      loading.value = false
+      return response
     })
+  }).finally(() => {
+    loading.value = false
+  })
+}
+
+function roleSnapshot() {
+  return {
+    user: { ...form.value },
+    roles: roles.value.slice(0, 100).map(item => ({
+      roleId: item.roleId,
+      roleName: item.roleName,
+      roleKey: item.roleKey,
+      status: item.status,
+      selected: roleIds.value.includes(item.roleId) || !!item.flag
+    })),
+    selectedRoleIds: [...roleIds.value],
+    pagination: { pageNum: pageNum.value, pageSize: pageSize.value, total: total.value }
   }
-})()
+}
+
+const authRoleAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '分配角色',
+  toolPrefix: 'page_system_user_auth_role',
+  actions: [
+    {
+      suffix: 'view',
+      permission: 'system:user:query',
+      label: '查看当前用户及角色授权状态',
+      handler: async () => {
+        if (!form.value.userId) await loadUserRoles()
+        return roleSnapshot()
+      }
+    },
+    {
+      suffix: 'select',
+      permission: 'system:user:edit',
+      label: '选择准备授予当前用户的角色',
+      inputSchema: {
+        type: 'object',
+        properties: { roleIds: { type: 'array', items: { type: 'integer' } } },
+        required: ['roleIds'],
+        additionalProperties: false
+      },
+      handler: async ({ roleIds: requestedRoleIds }) => {
+        const requested = new Set((requestedRoleIds || []).map(Number))
+        const selectableIds = new Set(roles.value.filter(checkSelectable).map(item => Number(item.roleId)))
+        const selected = [...requested].filter(id => selectableIds.has(id))
+        proxy.$refs["roleRef"]?.clearSelection?.()
+        await nextTick()
+        for (const row of roles.value) {
+          if (selected.includes(Number(row.roleId))) {
+            proxy.$refs["roleRef"]?.toggleRowSelection?.(row, true)
+          }
+        }
+        roleIds.value = selected
+        return { selectedRoleIds: [...selected], saved: false }
+      }
+    },
+    {
+      suffix: 'submit',
+      permission: 'system:user:edit',
+      label: '提交当前用户角色授权',
+      handler: async () => submitFormCore(false)
+    }
+  ],
+  getContext: roleSnapshot
+})
+
+useAiPageTools('system-user-auth-role', authRoleAiCapabilities.tools, authRoleAiCapabilities.getContext, {
+  route: route.path,
+  pageName: '分配角色'
+})
+
+loadUserRoles()
 </script>
