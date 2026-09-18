@@ -548,6 +548,9 @@ try {
   await page.getByTestId('ai-assistant-settings').click()
   await page.getByTestId('ai-assistant-history').waitFor({ timeout: 10000 })
 
+  await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
   await page.getByTestId('ai-assistant-new-conversation').click()
   await sendByButton('G_SECOND_CONVERSATION')
   await page.getByText(/AI_OK:/).last().waitFor({ timeout: 30000 })
