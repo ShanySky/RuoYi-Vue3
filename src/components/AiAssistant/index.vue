@@ -1,17 +1,16 @@
 <template>
   <div class="ai-assistant-host">
-    <el-button
-      v-if="mode === 'closed'"
-      data-testid="ai-assistant-open"
-      class="ai-fab"
-      type="primary"
-      circle
-      size="large"
-      title="AI 助手"
-      @click="openFloating"
-    >
-      <el-icon><ChatDotRound /></el-icon>
-    </el-button>
+    <el-tooltip v-if="mode === 'closed'" content="AI 助手" placement="left">
+      <el-button
+        data-testid="ai-assistant-open"
+        class="ai-fab"
+        type="primary"
+        circle
+        @click="openFloating"
+      >
+        <el-icon><ChatDotRound /></el-icon>
+      </el-button>
+    </el-tooltip>
 
     <section
       v-else
@@ -22,18 +21,45 @@
       <div v-if="mode === 'dock'" class="dock-resizer" @pointerdown="startResize" />
 
       <header class="panel-header">
-        <div class="panel-title">
-          <span class="status-dot" />
-          <span>AI 助手</span>
+        <div class="assistant-brand">
+          <div class="assistant-logo"><el-icon><MagicStick /></el-icon></div>
+          <div class="brand-copy">
+            <div class="brand-title">AI 助手</div>
+            <div class="brand-subtitle">
+              <span class="status-dot" />
+              {{ settingsOpen ? 'AI 配置' : (conversationId ? '当前会话进行中' : '随时可以开始') }}
+            </div>
+          </div>
         </div>
+
         <div class="panel-actions">
-          <el-button text size="small" data-testid="ai-assistant-settings" @click="toggleSettings">
-            {{ settingsOpen ? '聊天' : '设置' }}
-          </el-button>
-          <el-button text size="small" data-testid="ai-assistant-toggle-mode" @click="toggleMode">
-            {{ mode === 'dock' ? '小窗' : '展开' }}
-          </el-button>
-          <el-button text size="small" data-testid="ai-assistant-close" @click="closePanel">关闭</el-button>
+          <el-tooltip :content="settingsOpen ? '返回聊天' : 'AI 设置'" placement="bottom">
+            <el-button
+              text
+              circle
+              size="small"
+              data-testid="ai-assistant-settings"
+              @click="toggleSettings"
+            >
+              <el-icon><ChatLineRound v-if="settingsOpen" /><Setting v-else /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip :content="mode === 'dock' ? '切换为小窗' : '展开到右侧'" placement="bottom">
+            <el-button
+              text
+              circle
+              size="small"
+              data-testid="ai-assistant-toggle-mode"
+              @click="toggleMode"
+            >
+              <el-icon><ScaleToOriginal v-if="mode === 'dock'" /><FullScreen v-else /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="关闭" placement="bottom">
+            <el-button text circle size="small" data-testid="ai-assistant-close" @click="closePanel">
+              <el-icon><Close /></el-icon>
+            </el-button>
+          </el-tooltip>
         </div>
       </header>
 
@@ -45,65 +71,96 @@
         />
 
         <div v-else class="assistant-body">
-          <div class="assistant-toolbar">
-            <span class="conversation-tip">
-              {{ conversationId ? `会话 #${conversationId}` : '新会话' }}
-            </span>
-            <el-button text size="small" :disabled="busy" @click="newConversation">新会话</el-button>
+          <div class="conversation-bar">
+            <div class="conversation-context">
+              <span class="context-label">{{ conversationId ? `会话 #${conversationId}` : '新会话' }}</span>
+              <span class="context-route" :title="route.path">{{ route.path }}</span>
+            </div>
+            <el-tooltip content="新建会话" placement="bottom">
+              <el-button text circle size="small" :disabled="busy" @click="newConversation">
+                <el-icon><EditPen /></el-icon>
+              </el-button>
+            </el-tooltip>
           </div>
 
           <div ref="messagePane" data-testid="ai-assistant-messages" class="message-pane">
-            <div v-if="messages.length === 0" class="empty-tip">
-              可以直接聊天，也可以让我操作当前支持 AI 工具的页面。
-            </div>
-            <div v-for="item in messages" :key="item.id" :class="['message-row', item.role]">
-              <div class="message-bubble">
-                <div class="message-label">{{ item.role === 'user' ? '你' : item.role === 'tool' ? '工具' : 'AI' }}</div>
-                <div class="message-text">{{ item.text }}</div>
+            <div v-if="messages.length === 0" class="empty-state">
+              <div class="empty-icon"><el-icon><MagicStick /></el-icon></div>
+              <div class="empty-title">有什么可以帮你？</div>
+              <div class="empty-description">可以直接聊天，也可以让我操作当前页面支持的功能。</div>
+              <div class="empty-hints">
+                <span>查询当前页面数据</span>
+                <span>打开并填写表单</span>
               </div>
             </div>
+
+            <template v-for="item in messages" :key="item.id">
+              <div v-if="item.role === 'tool'" class="tool-status">
+                <el-icon><CircleCheck /></el-icon>
+                <span>{{ item.text }}</span>
+              </div>
+
+              <div v-else :class="['message-row', item.role]">
+                <div v-if="item.role === 'assistant'" class="message-avatar assistant-avatar">
+                  <el-icon><MagicStick /></el-icon>
+                </div>
+                <div class="message-content">
+                  <div class="message-label">{{ item.role === 'user' ? '你' : 'AI 助手' }}</div>
+                  <div class="message-bubble">
+                    <div class="message-text">{{ item.text }}</div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
             <div v-if="busy" class="working-line">
-              <el-icon class="is-loading"><Loading /></el-icon>
-              {{ workingText }}
+              <div class="message-avatar assistant-avatar"><el-icon><MagicStick /></el-icon></div>
+              <div class="working-card">
+                <span class="typing-dots"><i></i><i></i><i></i></span>
+                <span>{{ workingText }}</span>
+              </div>
             </div>
           </div>
 
-          <div class="composer">
+          <div class="composer-shell">
             <el-input
               data-testid="ai-assistant-input"
               v-model="input"
+              class="composer-input"
               type="textarea"
-              :rows="mode === 'dock' ? 4 : 3"
+              :autosize="{ minRows: mode === 'dock' ? 3 : 2, maxRows: mode === 'dock' ? 7 : 5 }"
               resize="none"
               :disabled="busy"
               placeholder="告诉 AI 你想做什么…"
               @keydown="handleComposerKeydown"
             />
-            <div class="composer-meta">
-              <span class="route-hint">当前：{{ route.path }}</span>
-              <el-dropdown trigger="click" @command="setSendShortcut">
-                <button class="shortcut-button" type="button">
-                  {{ sendShortcut === 'enter' ? 'Enter 发送' : 'Ctrl+Enter 发送' }} ▾
-                </button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="enter" :disabled="sendShortcut === 'enter'">Enter 发送 · Shift+Enter 换行</el-dropdown-item>
-                    <el-dropdown-item command="ctrl-enter" :disabled="sendShortcut === 'ctrl-enter'">Ctrl+Enter 发送 · Enter 换行</el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </div>
-            <div class="composer-actions">
-              <ai-model-picker
-                data-testid="ai-assistant-model"
-                v-model="modelId"
-                v-model:reasoning-effort="reasoningEffort"
-                :models="models"
-                :disabled="busy"
-              />
+
+            <div class="composer-footer">
+              <div class="composer-left">
+                <ai-model-picker
+                  data-testid="ai-assistant-model"
+                  v-model="modelId"
+                  v-model:reasoning-effort="reasoningEffort"
+                  :models="models"
+                  :disabled="busy"
+                />
+                <el-dropdown trigger="click" @command="setSendShortcut">
+                  <button class="shortcut-button" type="button">
+                    {{ sendShortcut === 'enter' ? 'Enter 发送' : 'Ctrl+Enter 发送' }}
+                  </button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="enter" :disabled="sendShortcut === 'enter'">Enter 发送 · Shift+Enter 换行</el-dropdown-item>
+                      <el-dropdown-item command="ctrl-enter" :disabled="sendShortcut === 'ctrl-enter'">Ctrl+Enter 发送 · Enter 换行</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+
               <el-button
                 data-testid="ai-assistant-send"
                 type="primary"
+                size="small"
                 :loading="busy"
                 :disabled="!input.trim() || !modelId"
                 @click="sendMessage"
@@ -119,7 +176,10 @@
 </template>
 
 <script setup>
-import { ChatDotRound, Loading } from '@element-plus/icons-vue'
+import {
+  ChatDotRound, ChatLineRound, CircleCheck, Close, EditPen, FullScreen,
+  MagicStick, ScaleToOriginal, Setting
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
@@ -340,7 +400,10 @@ onMounted(loadModels)
   right: 24px;
   bottom: 28px;
   z-index: 2000;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .2);
+  width: 44px;
+  height: 44px;
+  font-size: 19px;
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--el-color-primary) 28%, transparent);
 }
 
 .ai-panel {
@@ -348,18 +411,18 @@ onMounted(loadModels)
   z-index: 2000;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
-  box-shadow: 0 10px 35px rgba(0, 0, 0, .16);
-  overflow: hidden;
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .ai-panel.floating {
   right: 20px;
   bottom: 20px;
-  width: min(410px, calc(100vw - 32px));
-  height: min(600px, calc(100vh - 52px));
-  border-radius: 12px;
+  width: min(420px, calc(100vw - 32px));
+  height: min(620px, calc(100vh - 46px));
+  border-radius: 10px;
 }
 
 .ai-panel.dock {
@@ -370,7 +433,7 @@ onMounted(loadModels)
   border-top: 0;
   border-right: 0;
   border-bottom: 0;
-  box-shadow: -5px 0 18px rgba(0, 0, 0, .08);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, .06);
 }
 
 .dock-resizer {
@@ -378,54 +441,216 @@ onMounted(loadModels)
   top: 0;
   bottom: 0;
   left: -3px;
+  z-index: 3;
   width: 7px;
   cursor: col-resize;
-  z-index: 2;
 }
+.dock-resizer::after {
+  position: absolute;
+  top: 42%;
+  left: 3px;
+  width: 1px;
+  height: 52px;
+  background: var(--el-border-color);
+  content: "";
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.dock-resizer:hover::after { opacity: 1; }
 
 .panel-header {
-  height: 48px;
-  flex: 0 0 48px;
-  padding: 0 10px 0 14px;
+  height: 54px;
+  flex: 0 0 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 0 9px 0 14px;
+  background: var(--el-bg-color);
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
-.panel-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--el-color-success); }
-.panel-actions { display: flex; align-items: center; gap: 0; }
-.panel-content { flex: 1; min-height: 0; padding: 10px; }
-.settings-view { height: 100%; }
-.assistant-body { height: 100%; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.assistant-toolbar { min-height: 28px; display: flex; align-items: center; justify-content: space-between; }
-.conversation-tip { color: var(--el-text-color-secondary); font-size: 12px; }
+.assistant-brand { display: flex; align-items: center; min-width: 0; gap: 9px; }
+.assistant-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 31px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-radius: 8px;
+  font-size: 16px;
+}
+.brand-copy { min-width: 0; }
+.brand-title { color: var(--el-text-color-primary); font-size: 14px; font-weight: 600; line-height: 1.3; }
+.brand-subtitle { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--el-text-color-secondary); font-size: 10px; }
+.status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--el-color-success); }
+.panel-actions { display: flex; align-items: center; gap: 1px; }
+.panel-actions :deep(.el-button) { color: var(--el-text-color-secondary); }
+.panel-actions :deep(.el-button:hover) { color: var(--el-color-primary); background: var(--el-fill-color-light); }
+
+.panel-content { flex: 1; min-height: 0; padding: 0; }
+.settings-view { height: 100%; padding: 12px 10px 10px; }
+.assistant-body { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+
+.conversation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 4px 10px 4px 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.conversation-context { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.context-label { flex: 0 0 auto; color: var(--el-text-color-secondary); font-size: 11px; }
+.context-route {
+  overflow: hidden;
+  color: var(--el-text-color-placeholder);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .message-pane {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 7px 3px;
-  background: var(--el-fill-color-lighter);
-  border-radius: 8px;
+  padding: 16px 13px 10px;
+  background: var(--el-bg-color-page);
+  scroll-behavior: smooth;
 }
-.empty-tip { color: var(--el-text-color-secondary); text-align: center; padding: 44px 18px; line-height: 1.8; }
-.message-row { display: flex; margin: 9px 7px; }
-.message-row.user { justify-content: flex-end; }
-.message-bubble { max-width: 88%; border-radius: 10px; padding: 9px 11px; background: var(--el-bg-color); word-break: break-word; }
-.message-row.user .message-bubble { background: var(--el-color-primary-light-8); }
-.message-row.tool .message-bubble { background: var(--el-color-warning-light-9); font-size: 13px; }
-.message-label { font-size: 11px; color: var(--el-text-color-secondary); margin-bottom: 4px; }
-.message-text { white-space: pre-wrap; line-height: 1.6; }
-.working-line { padding: 8px 12px; color: var(--el-text-color-secondary); font-size: 13px; }
 
-.composer { display: flex; flex-direction: column; gap: 6px; }
-.composer-meta, .composer-actions { display: flex; align-items: center; gap: 8px; }
-.composer-meta { justify-content: space-between; }
-.composer-actions { justify-content: flex-end; min-height: 30px; }
-.route-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-secondary); font-size: 11px; }
-.shortcut-button { border: 0; background: transparent; color: var(--el-text-color-secondary); font-size: 11px; cursor: pointer; padding: 2px; }
+.empty-state {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px 54px;
+  text-align: center;
+}
+.empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-radius: 12px;
+  font-size: 22px;
+}
+.empty-title { margin-top: 13px; color: var(--el-text-color-primary); font-size: 15px; font-weight: 600; }
+.empty-description { max-width: 280px; margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.65; }
+.empty-hints { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 13px; }
+.empty-hints span {
+  padding: 4px 8px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 5px;
+  font-size: 10px;
+}
+
+.message-row { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 15px; }
+.message-row.user { justify-content: flex-end; }
+.message-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.assistant-avatar { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.message-content { max-width: 86%; min-width: 0; }
+.message-row.user .message-content { display: flex; flex-direction: column; align-items: flex-end; }
+.message-label { margin: 0 2px 4px; color: var(--el-text-color-placeholder); font-size: 9px; }
+.message-bubble {
+  padding: 9px 11px;
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 7px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .025);
+  word-break: break-word;
+}
+.message-row.user .message-bubble {
+  color: var(--el-text-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-8);
+}
+.message-text { white-space: pre-wrap; font-size: 13px; line-height: 1.65; }
+
+.tool-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 90%;
+  margin: -5px 0 12px 35px;
+  padding: 5px 8px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 5px;
+  font-size: 10px;
+}
+.tool-status .el-icon { color: var(--el-color-success); }
+
+.working-line { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.working-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.typing-dots { display: inline-flex; gap: 3px; }
+.typing-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--el-text-color-placeholder); animation: ai-dot 1.2s infinite ease-in-out; }
+.typing-dots i:nth-child(2) { animation-delay: .15s; }
+.typing-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes ai-dot { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+
+.composer-shell {
+  flex: 0 0 auto;
+  margin: 9px 10px 10px;
+  padding: 7px 8px 7px 10px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color);
+  border-radius: 9px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.composer-shell:focus-within {
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-9);
+}
+.composer-input :deep(.el-textarea__inner) {
+  min-height: 48px !important;
+  padding: 5px 2px 7px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+.composer-left { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.shortcut-button {
+  border: 0;
+  background: transparent;
+  color: var(--el-text-color-placeholder);
+  cursor: pointer;
+  font-size: 9px;
+  padding: 4px 5px;
+}
+.shortcut-button:hover { color: var(--el-text-color-secondary); }
 
 @media (max-width: 640px) {
   .ai-panel.floating {
@@ -434,5 +659,6 @@ onMounted(loadModels)
     width: calc(100vw - 16px);
     height: calc(100vh - 16px);
   }
+  .empty-hints { display: none; }
 }
 </style>
