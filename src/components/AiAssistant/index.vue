@@ -39,6 +39,7 @@
               circle
               size="small"
               data-testid="ai-assistant-settings"
+              :aria-label="settingsOpen ? '返回聊天' : 'AI 设置'"
               @click="toggleSettings"
             >
               <el-icon><ChatLineRound v-if="settingsOpen" /><Setting v-else /></el-icon>
@@ -50,13 +51,14 @@
               circle
               size="small"
               data-testid="ai-assistant-toggle-mode"
+              :aria-label="mode === 'dock' ? '切换为小窗' : '展开到右侧'"
               @click="toggleMode"
             >
               <el-icon><ScaleToOriginal v-if="mode === 'dock'" /><FullScreen v-else /></el-icon>
             </el-button>
           </el-tooltip>
           <el-tooltip content="关闭" placement="bottom">
-            <el-button text circle size="small" data-testid="ai-assistant-close" @click="closePanel">
+            <el-button text circle size="small" data-testid="ai-assistant-close" aria-label="关闭 AI 助手" @click="closePanel">
               <el-icon><Close /></el-icon>
             </el-button>
           </el-tooltip>
@@ -77,7 +79,7 @@
               <span class="context-route" :title="route.path">{{ route.path }}</span>
             </div>
             <el-tooltip content="新建会话" placement="bottom">
-              <el-button text circle size="small" :disabled="busy" @click="newConversation">
+              <el-button data-testid="ai-assistant-new-conversation" aria-label="新会话" text circle size="small" :disabled="busy" @click="newConversation">
                 <el-icon><EditPen /></el-icon>
               </el-button>
             </el-tooltip>
