@@ -17,7 +17,7 @@
       <template v-if="detail">
         <el-descriptions :column="2" border><el-descriptions-item label="Conversation">{{detail.conversation?.conversationId}}</el-descriptions-item><el-descriptions-item label="用户 ID">{{detail.conversation?.userId}}</el-descriptions-item><el-descriptions-item label="标题">{{detail.conversation?.title}}</el-descriptions-item><el-descriptions-item label="状态">{{detail.conversation?.status}}</el-descriptions-item></el-descriptions>
         <h4>Messages</h4><el-table :data="detail.messages||[]" size="small"><el-table-column prop="sequenceNo" label="#" width="55"/><el-table-column prop="role" label="Role" width="105"/><el-table-column prop="toolName" label="Tool" width="180"/><el-table-column prop="content" label="Content" min-width="260" show-overflow-tooltip/></el-table>
-        <h4>Runs / Usage</h4><el-table :data="detail.runs||[]" size="small"><el-table-column prop="runId" label="Run" width="75"/><el-table-column prop="status" label="状态" width="110"/><el-table-column prop="modelCode" label="模型"/><el-table-column prop="systemPromptVersion" label="System P" width="90"/><el-table-column prop="compactionPromptVersion" label="Compact P" width="95"/><el-table-column prop="inputTokens" label="Input" width="80"/><el-table-column prop="cacheReadTokens" label="Cache Read" width="100"/><el-table-column prop="cacheWriteTokens" label="Cache Write" width="105"/><el-table-column prop="totalTokens" label="Total" width="80"/></el-table>
+        <h4>Runs / Usage</h4><el-table :data="detail.runs||[]" size="small"><el-table-column prop="runId" label="Run" width="75"/><el-table-column prop="status" label="状态" width="110"/><el-table-column prop="modelCode" label="模型"/><el-table-column prop="systemPromptVersion" label="System P" width="90"/><el-table-column prop="compactionPromptVersion" label="Compact P" width="95"/><el-table-column prop="inputTokens" label="Input" width="80"/><el-table-column prop="cacheReadTokens" label="Cache Read" width="100"/><el-table-column prop="cacheWriteTokens" label="Cache Write" width="105"/><el-table-column prop="totalTokens" label="Total" width="80"/><el-table-column label="缓存诊断" min-width="260"><template #default="{row}">{{cacheHint(row)}}</template></el-table-column></el-table>
         <h4>Tool / WRITE</h4><el-table :data="detail.pendingTools||[]" size="small"><el-table-column prop="toolName" label="Tool"/><el-table-column prop="riskLevel" label="风险" width="120"/><el-table-column prop="status" label="状态" width="110"/><el-table-column prop="route" label="页面"/></el-table>
         <h4>Checkpoints</h4><el-table :data="detail.checkpoints||[]" size="small"><el-table-column prop="checkpointId" label="ID" width="70"/><el-table-column prop="coveredSequenceNo" label="覆盖到" width="90"/><el-table-column prop="modelCode" label="模型"/><el-table-column prop="summary" label="摘要" show-overflow-tooltip/></el-table>
       </template>
@@ -28,6 +28,12 @@
 import { listAiConversationAudit, getAiConversationAudit } from '@/api/ai/admin'
 const query=reactive({userId:'',conversationId:'',title:'',status:''}),rows=ref([]),loading=ref(false),drawer=ref(false),detail=ref(null)
 const truth=v=>v===true||v===1||v==='1'
+function cacheHint(run){
+  const input=Number(run?.inputTokens||0),read=Number(run?.cacheReadTokens||0)
+  if(read>0)return `已观察到缓存读取 ${read} tokens`
+  if(input<=0)return 'Provider 未返回可用的输入/缓存 usage，无法判断缓存命中'
+  return '本 Run 未观察到 cache read；常见原因是稳定前缀不足、前缀发生变化，或 Provider 未返回缓存明细'
+}
 async function load(){loading.value=true;try{const params={...query};for(const k of Object.keys(params))if(params[k]==='')delete params[k];const r=await listAiConversationAudit(params);rows.value=r.data||[]}finally{loading.value=false}}
 async function openDetail(row){const r=await getAiConversationAudit(row.conversationId);detail.value=r.data;drawer.value=true}
 onMounted(load)
