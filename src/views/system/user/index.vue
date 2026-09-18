@@ -474,6 +474,28 @@ function getUserAiRows() {
   }))
 }
 
+function mapAiOptions(items, valueKey, labelKey) {
+  return (items || []).map(item => ({
+    value: item?.[valueKey],
+    label: item?.[labelKey] ?? String(item?.[valueKey] ?? ''),
+    disabled: String(item?.status ?? '0') === '1'
+  })).filter(item => item.value !== undefined && item.value !== null)
+}
+
+function flattenDeptAiOptions(items = []) {
+  const result = []
+  const visit = nodes => {
+    for (const item of nodes || []) {
+      if (item?.id !== undefined && item?.id !== null) {
+        result.push({ value: Number(item.id), label: item.label || String(item.id), disabled: !!item.disabled })
+      }
+      if (Array.isArray(item?.children)) visit(item.children)
+    }
+  }
+  visit(items)
+  return result
+}
+
 function getUserAiFormSnapshot() {
   const value = form.value || {}
   return {
@@ -504,16 +526,39 @@ const userAiCapabilities = createAiCrudPageCapabilities({
     { key: 'pageSize', label: '每页数量', type: 'integer' }
   ],
   formFields: [
-    { key: 'userName', label: '用户名称', description: '仅新增用户时可设置；已有用户登录账号不可修改' },
-    { key: 'password', label: '用户密码', description: '仅新增用户时可设置' },
-    { key: 'nickName', label: '用户昵称', required: true },
-    { key: 'deptId', label: '归属部门', type: 'integer' },
-    { key: 'phonenumber', label: '手机号码' },
-    { key: 'email', label: '邮箱' },
-    { key: 'sex', label: '用户性别', description: '0男，1女，2未知' },
-    { key: 'status', label: '状态', description: '0正常，1停用' },
-    { key: 'postIds', label: '岗位ID列表', type: 'array' },
-    { key: 'roleIds', label: '角色ID列表', type: 'array' },
+    {
+      key: 'userName', label: '用户名称', required: true, addOnly: true,
+      description: '仅新增用户时可设置；已有用户登录账号不可修改',
+      validationRules: () => rules.value.userName
+    },
+    {
+      key: 'password', label: '用户密码', required: true, addOnly: true,
+      description: '仅新增用户时可设置',
+      validationRules: () => pwdValidator.value
+    },
+    { key: 'nickName', label: '用户昵称', required: true, validationRules: () => rules.value.nickName },
+    {
+      key: 'deptId', label: '归属部门', type: 'integer',
+      options: () => flattenDeptAiOptions(enabledDeptOptions.value || [])
+    },
+    { key: 'phonenumber', label: '手机号码', validationRules: () => rules.value.phonenumber },
+    { key: 'email', label: '邮箱', validationRules: () => rules.value.email },
+    {
+      key: 'sex', label: '用户性别', description: '0男，1女，2未知',
+      options: () => mapAiOptions(sys_user_sex.value || [], 'value', 'label')
+    },
+    {
+      key: 'status', label: '状态', description: '0正常，1停用',
+      options: () => mapAiOptions(sys_normal_disable.value || [], 'value', 'label')
+    },
+    {
+      key: 'postIds', label: '岗位ID列表', type: 'array', itemType: 'integer',
+      options: () => mapAiOptions(postOptions.value, 'postId', 'postName')
+    },
+    {
+      key: 'roleIds', label: '角色ID列表', type: 'array', itemType: 'integer',
+      options: () => mapAiOptions(roleOptions.value, 'roleId', 'roleName')
+    },
     { key: 'remark', label: '备注' }
   ],
   query: {
