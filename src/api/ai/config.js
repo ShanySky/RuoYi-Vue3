@@ -39,3 +39,20 @@ export function testAiModelChat(modelId) {
 export function testAiModelTools(modelId) {
   return request({ url: `/ai/config/models/${modelId}/test-tools`, method: 'post', headers: { repeatSubmit: false } })
 }
+
+export function setDefaultAiReasoning(modelId, reasoningEffort) {
+  return request({
+    url: `/ai/config/models/${modelId}/default-reasoning`,
+    method: 'put',
+    data: { reasoningEffort: reasoningEffort || null },
+    headers: { repeatSubmit: false }
+  })
+}
+
+export function testAiModelReasoning(modelId) {
+  return request({
+    url: `/ai/config/models/${modelId}/test-reasoning`,
+    method: 'post',
+    headers: { repeatSubmit: false }
+  })
+}
