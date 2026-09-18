@@ -561,7 +561,13 @@ const userAiCapabilities = createAiCrudPageCapabilities({
       if (!open.value) throw new Error('当前没有可提交的用户表单')
       const adding = form.value.userId == undefined
       if ((mode === 'add') !== adding) throw new Error('当前表单模式已经变化，请重新打开表单')
-      return await submitFormCore()
+      const createdUserName = adding ? form.value.userName : null
+      const result = await submitFormCore()
+      if (!adding) return result
+      const response = await listUser({ userName: createdUserName, pageNum: 1, pageSize: 10 })
+      const created = (response.rows || []).find(item => item.userName === createdUserName)
+      if (!created?.userId) throw new Error('用户已新增，但未能重新定位新用户 ID')
+      return { ...result, userId: Number(created.userId), userName: createdUserName }
     }
   },
   actions: [
