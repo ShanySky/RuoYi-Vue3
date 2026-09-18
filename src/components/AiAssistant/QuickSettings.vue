@@ -5,7 +5,7 @@
         <div class="section-title">AI 服务</div>
         <el-form label-position="top" size="small">
           <el-form-item label="Base URL">
-            <el-input v-model="form.baseUrl" placeholder="https://api.example.com/v1" />
+            <el-input v-model="form.baseUrl" placeholder="https://api.example.com/v1" @input="clearDiscoveredModels" />
           </el-form-item>
           <el-form-item label="Token">
             <el-input
@@ -14,6 +14,7 @@
               show-password
               autocomplete="new-password"
               :placeholder="provider.hasToken ? '已保存 Token；留空不修改' : '请输入 API Token'"
+              @input="clearDiscoveredModels"
             />
           </el-form-item>
           <div class="compact-row">
@@ -23,7 +24,7 @@
           <div class="button-row">
             <el-button type="primary" size="small" :loading="saving" @click="saveProvider">保存</el-button>
             <el-button size="small" :loading="testing" @click="testProvider">测试连接</el-button>
-            <el-button size="small" :loading="syncing" :disabled="!provider.providerId" @click="syncModels">同步模型</el-button>
+            <el-button size="small" :loading="syncing" :disabled="!provider.providerId || providerDirty" @click="syncModels">同步模型</el-button>
           </div>
         </el-form>
       </div>
@@ -42,18 +43,23 @@
           <div v-for="model in filteredModels" :key="model.modelId" class="model-card">
             <div class="model-top">
               <div class="model-name" :title="model.modelCode">{{ model.displayName || model.modelCode }}</div>
+              <el-tag v-if="model.discoveredOnly" size="small" type="info">已发现</el-tag>
               <el-switch
+                v-else
                 :model-value="model.enabled === '0'"
                 size="small"
                 @change="value => changeEnabled(model, value)"
               />
             </div>
-            <div class="model-actions">
+            <div v-if="model.discoveredOnly" class="model-actions">
+              <span class="discovered-tip">测试连接已发现，保存 Provider 后同步即可配置</span>
+            </div>
+            <div v-else class="model-actions">
               <el-tag v-if="model.defaultModel === '0'" size="small" type="success">默认模型</el-tag>
               <el-button v-else link type="primary" size="small" @click="makeDefault(model)">设为默认</el-button>
               <el-button link size="small" @click="testReasoning(model)">思考能力</el-button>
             </div>
-            <div v-if="model.reasoningCapability === 'SUPPORTED'" class="reasoning-row">
+            <div v-if="!model.discoveredOnly && model.reasoningCapability === 'SUPPORTED'" class="reasoning-row">
               <span>默认档位</span>
               <el-select
                 :model-value="model.defaultReasoningEffort || ''"
@@ -70,11 +76,11 @@
                 />
               </el-select>
             </div>
-            <div v-else class="capability-note">
+            <div v-else-if="!model.discoveredOnly" class="capability-note">
               思考档位：{{ model.reasoningCapability === 'UNSUPPORTED' ? '不支持' : '未测试' }}
             </div>
           </div>
-          <div v-if="filteredModels.length === 0" class="empty-tip">没有匹配模型。同步后可输入部分名称查找。</div>
+          <div v-if="filteredModels.length === 0" class="empty-tip">没有匹配模型。请先测试连接或同步模型。</div>
         </div>
       </div>
     </el-scrollbar>
@@ -84,7 +90,7 @@
 <script setup>
 import { refDebounced } from '@vueuse/core'
 import { ElMessage } from 'element-plus'
-import { filterAiModelsByQuery, getRecentAiModelIds, suggestAiModels } from '@/ai/modelSearch'
+import { filterAiModelsByQuery, getRecentAiModelIds, mergeDiscoveredAiModels, suggestAiModels } from '@/ai/modelSearch'
 import {
   getAiProvider, saveAiProvider, testAiProvider, syncAiModels, listAiModels,
   setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning, testAiModelReasoning
@@ -94,6 +100,7 @@ const emit = defineEmits(['updated'])
 const provider = reactive({})
 const form = reactive({ name: '默认 AI 服务', baseUrl: '', token: '', enabled: false, timeoutSeconds: 30 })
 const models = ref([])
+const discoveredCodes = ref([])
 const query = ref('')
 const debouncedQuery = refDebounced(query, 180)
 const saving = ref(false)
@@ -101,16 +108,26 @@ const testing = ref(false)
 const syncing = ref(false)
 const modelLoading = ref(false)
 
+const providerDirty = computed(() => {
+  if (!provider.providerId) return true
+  return form.baseUrl.trim() !== String(provider.baseUrl || '').trim()
+    || !!form.token
+    || form.enabled !== !!provider.enabled
+    || Number(form.timeoutSeconds || 30) !== Number(provider.timeoutSeconds || 30)
+})
+
+const searchableModels = computed(() => mergeDiscoveredAiModels(models.value, discoveredCodes.value))
+
 function modelLabel(model) {
   return model?.displayName || model?.modelCode || ''
 }
 
 const filteredModels = computed(() => {
   if (debouncedQuery.value.trim()) {
-    return filterAiModelsByQuery(models.value, debouncedQuery.value, 20)
+    return filterAiModelsByQuery(searchableModels.value, debouncedQuery.value, 20)
   }
 
-  return suggestAiModels(models.value, getRecentAiModelIds(), 8)
+  return suggestAiModels(searchableModels.value, getRecentAiModelIds(), 8)
 })
 
 function reasoningOptions(model) {
@@ -121,6 +138,10 @@ function reasoningOptions(model) {
 function effortLabel(value) {
   const labels = { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh' }
   return labels[value] || value
+}
+
+function clearDiscoveredModels() {
+  discoveredCodes.value = []
 }
 
 async function loadProvider() {
@@ -172,7 +193,8 @@ async function testProvider() {
   testing.value = true
   try {
     const res = await testAiProvider({ ...form, token: form.token || undefined })
-    ElMessage.success(`连接成功，发现 ${Array.isArray(res.data) ? res.data.length : 0} 个模型`)
+    discoveredCodes.value = Array.isArray(res.data) ? res.data : []
+    ElMessage.success(`连接成功，发现 ${discoveredCodes.value.length} 个模型；现在可以直接搜索`)
   } finally {
     testing.value = false
   }
@@ -183,6 +205,7 @@ async function syncModels() {
   try {
     const res = await syncAiModels()
     models.value = res.data || []
+    discoveredCodes.value = []
     ElMessage.success(`已同步 ${models.value.length} 个模型`)
     emit('updated')
   } finally {
@@ -234,6 +257,7 @@ defineExpose({ reload })
 .model-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .model-actions { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.discovered-tip { color: var(--el-text-color-secondary); font-size: 11px; }
 .reasoning-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--el-text-color-secondary); }
 .capability-note, .empty-tip { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; }
 .empty-tip { padding: 18px 6px; text-align: center; line-height: 1.6; }
