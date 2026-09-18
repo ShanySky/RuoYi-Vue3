@@ -636,6 +636,7 @@ async function sendMessage() {
   activeRunId = null
   activeClientRunKey = createClientRunKey()
   const clientRunKey = activeClientRunKey
+  aiStore.setLiveRun(null, clientRunKey, 'RUNNING')
 
   resetEscArmed()
   busy.value = true
@@ -654,6 +655,7 @@ async function sendMessage() {
       activeAbortController = null
       activeRunId = null
       activeClientRunKey = null
+      aiStore.setLiveRun(null, null)
       resetEscArmed()
       workingText.value = 'AI 正在处理…'
     }
@@ -687,6 +689,7 @@ async function stopCurrentRun(reason = 'USER_STOP') {
     stopping.value = false
     activeRunId = null
     activeClientRunKey = null
+    aiStore.setLiveRun(null, null)
     workingText.value = 'AI 正在处理…'
   }
 }
@@ -717,7 +720,10 @@ async function driveTurn(extra, generation, signal) {
 
     const data = res.data || {}
     if (data.conversationId) conversationId.value = data.conversationId
-    if (data.runId) activeRunId = data.runId
+    if (data.runId) {
+      activeRunId = data.runId
+      aiStore.setLiveRun(data.runId, clientRunKey, data.type === 'TOOL_CALL' ? 'WAITING_TOOL' : 'RUNNING')
+    }
 
     if (data.type === 'RUN_STATE') {
       return

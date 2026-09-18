@@ -5,6 +5,7 @@ import { login, logout, getInfo } from '@/api/login'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { isHttp, isEmpty } from "@/utils/validate"
 import useLockStore from '@/store/modules/lock'
+import useAiStore from '@/store/modules/ai'
 import defAva from '@/assets/images/profile.jpg'
 
 const useUserStore = defineStore(
@@ -76,18 +77,13 @@ const useUserStore = defineStore(
         })
       },
       // 退出系统
-      logOut() {
-        return new Promise((resolve, reject) => {
-          logout(this.token).then(() => {
-            this.token = ''
-            this.roles = []
-            this.permissions = []
-            removeToken()
-            resolve()
-          }).catch(error => {
-            reject(error)
-          })
-        })
+      async logOut() {
+        await useAiStore().prepareLogout()
+        await logout(this.token)
+        this.token = ''
+        this.roles = []
+        this.permissions = []
+        removeToken()
       }
     }
   })

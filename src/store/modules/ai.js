@@ -1,5 +1,5 @@
 import { getAiPreferences, saveAiPreferences } from '@/api/ai/preferences'
-import { cancelAiRun, getAiConversation, listAiConversations } from '@/api/ai/chat'
+import { cancelAiRun, cancelAiRunByClientKey, getAiConversation, listAiConversations } from '@/api/ai/chat'
 import { listEnabledAiModels } from '@/api/ai/config'
 
 const ACTIVE_KEY = 'ruoyi-ai-active-conversation'
@@ -53,6 +53,7 @@ const useAiStore = defineStore('ai-assistant', {
     conversationId: Number(sessionGet(ACTIVE_KEY)) || undefined,
     messages: [],
     activeRun: null,
+    liveClientRunKey: null,
     pendingTools: [],
     checkpoint: null,
     draft: sessionGet(DRAFT_KEY) || '',
@@ -113,13 +114,19 @@ const useAiStore = defineStore('ai-assistant', {
       this.modelId = modelId
       this.reasoningEffort = reasoningEffort || null
     },
+    setLiveRun(runId, clientRunKey = this.liveClientRunKey, status = 'RUNNING') {
+      this.liveClientRunKey = clientRunKey || null
+      this.activeRun = runId ? { ...(this.activeRun || {}), runId, status } : null
+    },
     append(role, text) {
       this.messages.push({ id: `local-${++this.messageSeq}`, role, text: String(text ?? '') })
     },
     newConversation() {
       this.setConversationId(undefined)
+      this.setDraft('')
       this.messages = []
       this.activeRun = null
+      this.liveClientRunKey = null
       this.pendingTools = []
       this.checkpoint = null
       const preferredId = this.preferences?.defaultModelId
@@ -160,6 +167,40 @@ const useAiStore = defineStore('ai-assistant', {
         return data
       } finally {
         this.restoring = false
+      }
+    },
+    async prepareLogout() {
+      try {
+        if (this.activeRun?.runId) {
+          await cancelAiRun(this.activeRun.runId, 'USER_LOGOUT')
+        } else if (this.liveClientRunKey) {
+          await cancelAiRunByClientKey(this.liveClientRunKey, 'USER_LOGOUT')
+        }
+      } catch (error) {
+        console.warn('AI active run cancel before logout failed', error)
+      } finally {
+        this.setConversationId(undefined)
+        this.setDraft('')
+        this.messages = []
+        this.activeRun = null
+        this.liveClientRunKey = null
+        this.pendingTools = []
+        this.checkpoint = null
+        this.history = []
+        this.models = []
+        this.modelId = undefined
+        this.reasoningEffort = null
+        this.preferencesLoaded = false
+        this.preferences = {
+          defaultModelId: null,
+          defaultReasoningEffort: null,
+          chatFontSize: 'standard',
+          sendShortcut: 'enter',
+          doubleEscEnabled: true,
+          historyEntryVisible: false,
+          autoRestoreLastConversation: false,
+          assistantOpenMode: 'last'
+        }
       }
     },
     async loadHistory(keyword = '') {
