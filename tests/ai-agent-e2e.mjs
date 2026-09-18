@@ -442,6 +442,55 @@ try {
   const afterSteerWrite = await getUser(token, 2)
   assert.equal(afterSteerWrite.nickName, TEST_NICKNAME, 'Pending WRITE was persisted after steering')
 
+  console.log('19. Cross-page Agent creates a role and assigns it to ry in one conversation')
+  await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
+  await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('CROSS_PAGE_ROLE_ASSIGN')
+
+  let crossPageConfirm = page.getByTestId('ai-write-confirmation')
+  await crossPageConfirm.waitFor({ timeout: 60000 })
+  await page.waitForURL(url => url.pathname === '/system/role', { timeout: 30000 })
+  await crossPageConfirm.getByRole('button', { name: '确认执行', exact: true }).click()
+
+  await page.waitForURL(url => url.pathname === '/system/user-auth/role/2', { timeout: 60000 })
+  crossPageConfirm = page.getByTestId('ai-write-confirmation')
+  await crossPageConfirm.waitFor({ timeout: 60000 })
+  await crossPageConfirm.getByRole('button', { name: '确认执行', exact: true }).click()
+  await page.getByText('CROSS_PAGE_ROLE_ASSIGN_DONE', { exact: true }).waitFor({ timeout: 60000 })
+
+  const authRoleResponse = await fetch(`${BACKEND_URL}/system/user/authRole/2`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  assert.equal(authRoleResponse.status, 200)
+  const authRolePayload = await authRoleResponse.json()
+  assert.equal(authRolePayload.code, 200)
+  const crossRole = (authRolePayload.roles || []).find(item => item.roleKey === 'e2e_cross_page')
+  assert.ok(crossRole, 'Cross-page flow did not create the expected role')
+  assert.equal(crossRole.flag, true, 'Cross-page flow did not assign the new role to ry')
+
+  const restoreRoleIds = (authRolePayload.roles || [])
+    .filter(item => item.flag && item.roleId !== crossRole.roleId)
+    .map(item => item.roleId)
+    .join(',')
+  const restoreResponse = await fetch(
+    `${BACKEND_URL}/system/user/authRole?userId=2&roleIds=${encodeURIComponent(restoreRoleIds)}`,
+    { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }
+  )
+  assert.equal(restoreResponse.status, 200)
+  const restorePayload = await restoreResponse.json()
+  assert.equal(restorePayload.code, 200)
+
+  const deleteRoleResponse = await fetch(`${BACKEND_URL}/system/role/${crossRole.roleId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  assert.equal(deleteRoleResponse.status, 200)
+  const deleteRolePayload = await deleteRoleResponse.json()
+  assert.equal(deleteRolePayload.code, 200)
+
   await screenshot('ai-agent-model-selection-e2e-success')
   console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
 }
