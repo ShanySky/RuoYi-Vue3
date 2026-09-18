@@ -800,6 +800,45 @@ try {
     compactionThresholdPercent: 75
   })
 
+  console.log('27a. Default 64K/75% compaction threshold triggers only after the real threshold is crossed')
+  await apiJson(token, `/ai/config/models/${primaryModel.modelId}/runtime-settings`, 'PUT', {
+    contextWindowTokens: 65536,
+    autoCompaction: true,
+    compactionThresholdPercent: 75
+  })
+  const defaultThresholdOne = await apiJson(token, '/ai/chat/turn', 'POST', {
+    modelId: primaryModel.modelId,
+    reasoningEffort: 'high',
+    userMessage: 'I_DEFAULT_64K_75_ONE ' + 'a'.repeat(90000),
+    route: '/index',
+    pageContext: {},
+    frontendTools: []
+  })
+  assert.equal(defaultThresholdOne.type, 'MESSAGE')
+  const beforeDefaultThreshold = await apiJson(token, `/ai/admin/audit/${defaultThresholdOne.conversationId}`)
+  assert.equal((beforeDefaultThreshold.checkpoints || []).length, 0,
+    'A single ~90k-char turn must remain below the default 64K/75% compaction threshold')
+
+  const defaultThresholdTwo = await apiJson(token, '/ai/chat/turn', 'POST', {
+    conversationId: defaultThresholdOne.conversationId,
+    modelId: primaryModel.modelId,
+    reasoningEffort: 'high',
+    userMessage: 'I_DEFAULT_64K_75_TWO ' + 'b'.repeat(115000),
+    route: '/index',
+    pageContext: {},
+    frontendTools: []
+  })
+  assert.equal(defaultThresholdTwo.type, 'MESSAGE')
+  const afterDefaultThreshold = await apiJson(token, `/ai/admin/audit/${defaultThresholdOne.conversationId}`)
+  assert.ok((afterDefaultThreshold.checkpoints || []).length >= 1,
+    'Crossing the default 64K/75% threshold must create an automatic checkpoint')
+  const defaultThresholdCheckpoint = afterDefaultThreshold.checkpoints.at(-1)
+  assert.ok(Number(defaultThresholdCheckpoint.estimatedTokens || 0) >= Math.floor(65536 * 75 / 100),
+    'Checkpoint estimated tokens must be at or above the configured 75% threshold')
+  assert.ok((afterDefaultThreshold.runs || []).some(run =>
+    run.status === 'COMPLETED' && Number(run.runId) === Number(defaultThresholdTwo.runId)),
+    'The turn that triggers default-threshold compaction must automatically continue to completion')
+
   console.log('28. Page Capability switch is enforced by the server, not only hidden in the UI')
   const pageConfigs = await apiJson(token, '/ai/admin/pages')
   const userPageConfig = pageConfigs.find(item => item.route === '/system/user')
