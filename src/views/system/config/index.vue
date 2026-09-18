@@ -166,6 +166,8 @@
 
 <script setup name="Config">
 import { listConfig, getConfig, delConfig, addConfig, updateConfig, refreshCache } from "@/api/system/config"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_yes_no } = useDict("sys_yes_no")
@@ -202,9 +204,11 @@ const { queryParams, form, rules } = toRefs(data)
 /** 查询参数列表 */
 function getList() {
   loading.value = true
-  listConfig(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
+  return listConfig(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
     configList.value = response.rows
     total.value = response.total
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -259,32 +263,33 @@ function handleAdd() {
 function handleUpdate(row) {
   reset()
   const configId = row.configId || ids.value
-  getConfig(configId).then(response => {
+  return getConfig(configId).then(response => {
     form.value = response.data
     open.value = true
     title.value = "修改参数"
+    return response.data
   })
 }
 
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["configRef"].validate(valid => {
-    if (valid) {
-      if (form.value.configId != undefined) {
-        updateConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功")
-          open.value = false
-          getList()
-        })
-      } else {
-        addConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功")
-          open.value = false
-          getList()
-        })
-      }
-    }
+function submitFormCore() {
+  return new Promise((resolve, reject) => {
+    proxy.$refs["configRef"].validate(valid => {
+      if (!valid) return reject(new Error("表单校验未通过"))
+      const editing = form.value.configId != undefined
+      const savedConfigId = form.value.configId
+      const action = editing ? updateConfig(form.value) : addConfig(form.value)
+      action.then(() => {
+        proxy.$modal.msgSuccess(editing ? "修改成功" : "新增成功")
+        open.value = false
+        getList().then(() => resolve({ success: true, configId: savedConfigId }))
+      }).catch(reject)
+    })
   })
+}
+
+function submitForm() {
+  submitFormCore().catch(() => {})
 }
 
 /** 删除按钮操作 */
