@@ -12,20 +12,71 @@ function normalizeFields(fields = []) {
     required: !!field.required,
     editable: field.editable !== false,
     options: field.options || undefined,
+    validationRules: field.validationRules || field.rules || undefined,
     itemType: field.itemType || undefined,
     inputSchema: field.inputSchema || undefined,
     description: field.description || undefined
   }))
 }
 
+function resolveFieldValue(value) {
+  try {
+    return typeof value === 'function' ? value() : value
+  } catch {
+    return undefined
+  }
+}
+
+function serializeValidationRules(rules) {
+  const value = resolveFieldValue(rules)
+  if (!Array.isArray(value)) return undefined
+  return value.map(rule => {
+    if (!rule || typeof rule !== 'object') return rule
+    const copy = {}
+    for (const key of ['required', 'type', 'min', 'max', 'len', 'message', 'trigger']) {
+      if (rule[key] !== undefined) copy[key] = rule[key]
+    }
+    if (rule.pattern instanceof RegExp) copy.pattern = rule.pattern.source
+    else if (rule.pattern != null) copy.pattern = String(rule.pattern)
+    return copy
+  })
+}
+
+function resolvedOptions(field) {
+  const value = resolveFieldValue(field.options)
+  return Array.isArray(value) ? value : undefined
+}
+
+function fieldSnapshot(field) {
+  return {
+    key: field.key,
+    label: field.label,
+    type: field.type,
+    required: field.required,
+    editable: field.editable,
+    options: resolvedOptions(field),
+    validationRules: serializeValidationRules(field.validationRules),
+    itemType: field.itemType,
+    description: field.description
+  }
+}
+
 function fieldInputSchema(field) {
-  const schema = field.inputSchema ? { ...field.inputSchema } : { type: field.type }
+  const configured = resolveFieldValue(field.inputSchema)
+  const schema = configured ? { ...configured } : { type: field.type }
   if (!schema.description) schema.description = field.description || field.label
-  if (!schema.enum && Array.isArray(field.options)) {
-    const values = field.options
+  const options = resolvedOptions(field)
+  if (!schema.enum && Array.isArray(options)) {
+    const values = options
       .map(option => option && typeof option === 'object' ? option.value : option)
       .filter(value => ['string', 'number', 'boolean'].includes(typeof value))
     if (values.length) schema.enum = values
+  }
+  const rules = serializeValidationRules(field.validationRules) || []
+  for (const rule of rules) {
+    if (schema.type === 'string' && rule?.min != null && schema.minLength == null) schema.minLength = rule.min
+    if (schema.type === 'string' && rule?.max != null && schema.maxLength == null) schema.maxLength = rule.max
+    if (schema.type === 'string' && rule?.pattern && schema.pattern == null) schema.pattern = rule.pattern
   }
   if (schema.type === 'array' && !schema.items) {
     schema.items = { type: field.itemType || 'string' }
@@ -51,7 +102,7 @@ export function createAiCrudPageCapabilities(options) {
       name: `${prefix}_search`,
       requiredPermission: options.query.permission,
       description: `设置${options.pageName || '当前页面'}查询条件并执行查询`,
-      inputSchema: objectSchema(
+      inputSchema: () => objectSchema(
         Object.fromEntries(queryFields.map(field => [field.key, fieldInputSchema(field)]))
       ),
       handler: async args => {
@@ -71,7 +122,7 @@ export function createAiCrudPageCapabilities(options) {
       name: `${prefix}_reset`,
       requiredPermission: options.query.permission,
       description: `重置${options.pageName || '当前页面'}查询条件并刷新数据`,
-      inputSchema: objectSchema(),
+      inputSchema: () => objectSchema(),
       handler: async () => {
         await options.query.reset()
         return { reset: true, total: options.getTotal?.() ?? null }
@@ -86,7 +137,7 @@ export function createAiCrudPageCapabilities(options) {
         name: `${prefix}_add_open`,
         requiredPermission: form.addPermission,
         description: `打开${options.pageName || '当前页面'}新增表单`,
-        inputSchema: objectSchema(),
+        inputSchema: () => objectSchema(),
         handler: async () => {
           await form.openAdd()
           return { opened: true, mode: 'add', form: form.snapshot?.() || {} }
@@ -100,7 +151,7 @@ export function createAiCrudPageCapabilities(options) {
         name: `${prefix}_edit_open`,
         requiredPermission: form.editPermission,
         description: `打开${options.pageName || '当前页面'}指定记录的编辑表单`,
-        inputSchema: objectSchema({
+        inputSchema: () => objectSchema({
           [recordIdKey]: { type: 'integer', description: form.recordIdLabel || '记录ID' }
         }, [recordIdKey]),
         handler: async args => {
@@ -113,13 +164,14 @@ export function createAiCrudPageCapabilities(options) {
 
     if (form.setFields) {
       const editableFields = formFields.filter(item => item.editable)
-      const fieldSchema = Object.fromEntries(editableFields.map(field => [field.key, fieldInputSchema(field)]))
       if (form.openAdd) {
         tools.push({
           name: `${prefix}_add_set_fields`,
           requiredPermission: form.addPermission,
           description: `填写当前已打开的${options.pageName || '页面'}新增表单字段，但不保存`,
-          inputSchema: objectSchema(fieldSchema),
+          inputSchema: () => objectSchema(
+            Object.fromEntries(editableFields.map(field => [field.key, fieldInputSchema(field)]))
+          ),
           handler: args => form.setFields(pickDeclaredArgs(args, editableFields), 'add')
         })
       }
@@ -128,7 +180,9 @@ export function createAiCrudPageCapabilities(options) {
           name: `${prefix}_edit_set_fields`,
           requiredPermission: form.editPermission,
           description: `修改当前已打开的${options.pageName || '页面'}编辑表单字段，但不保存`,
-          inputSchema: objectSchema(fieldSchema),
+          inputSchema: () => objectSchema(
+            Object.fromEntries(editableFields.map(field => [field.key, fieldInputSchema(field)]))
+          ),
           handler: args => form.setFields(pickDeclaredArgs(args, editableFields), 'edit')
         })
       }
@@ -140,7 +194,7 @@ export function createAiCrudPageCapabilities(options) {
           name: `${prefix}_add_submit`,
           requiredPermission: form.addPermission,
           description: `提交当前${options.pageName || '页面'}新增表单并真实写入系统`,
-          inputSchema: objectSchema(),
+          inputSchema: () => objectSchema(),
           handler: () => form.submit('add')
         })
       }
@@ -149,7 +203,7 @@ export function createAiCrudPageCapabilities(options) {
           name: `${prefix}_edit_submit`,
           requiredPermission: form.editPermission,
           description: `提交当前${options.pageName || '页面'}编辑表单并真实写入系统`,
-          inputSchema: objectSchema(),
+          inputSchema: () => objectSchema(),
           handler: () => form.submit('edit')
         })
       }
@@ -161,7 +215,9 @@ export function createAiCrudPageCapabilities(options) {
       name: `${prefix}_${action.suffix}`,
       requiredPermission: action.permission,
       description: action.description || `执行${options.pageName || '当前页面'}动作：${action.label || action.suffix}`,
-      inputSchema: action.inputSchema || objectSchema(),
+      inputSchema: typeof action.inputSchema === 'function'
+        ? action.inputSchema
+        : () => (action.inputSchema || objectSchema()),
       handler: args => action.handler(args || {})
     })
   }
@@ -171,8 +227,8 @@ export function createAiCrudPageCapabilities(options) {
     return {
       pageName: options.pageName,
       capabilityProtocol: 'ruoyi-semantic-page-v1',
-      queryFields,
-      formFields,
+      queryFields: queryFields.map(fieldSnapshot),
+      formFields: formFields.map(fieldSnapshot),
       actions: tools.map(tool => ({
         name: tool.name,
         description: tool.description,
