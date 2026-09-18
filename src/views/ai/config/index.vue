@@ -100,7 +100,9 @@
 </template>
 
 <script setup name="AiConfig">
+import { refDebounced } from '@vueuse/core'
 import { ElMessage } from 'element-plus'
+import { filterAiModelsByQuery } from '@/ai/modelSearch'
 import {
   getAiProvider, saveAiProvider, testAiProvider, syncAiModels, listAiModels,
   setAiModelEnabled, setDefaultAiModel, testAiModelChat, testAiModelTools,
@@ -113,6 +115,7 @@ const form = reactive({ name: '默认 AI 服务', baseUrl: '', token: '', enable
 const rules = { baseUrl: [{ required: true, message: 'Base URL 不能为空', trigger: 'blur' }] }
 const models = ref([])
 const modelQuery = ref('')
+const debouncedModelQuery = refDebounced(modelQuery, 180)
 const saving = ref(false)
 const testing = ref(false)
 const syncing = ref(false)
@@ -123,19 +126,8 @@ function modelLabel(model) {
 }
 
 const filteredModels = computed(() => {
-  const q = modelQuery.value.trim().toLowerCase()
-  if (q) {
-    return [...models.value]
-      .map(model => {
-        const code = String(model.modelCode || '').toLowerCase()
-        const label = modelLabel(model).toLowerCase()
-        const prefix = code.startsWith(q) || label.startsWith(q)
-        return { model, rank: prefix ? 0 : (code.includes(q) || label.includes(q)) ? 1 : 9 }
-      })
-      .filter(item => item.rank < 9)
-      .sort((a, b) => a.rank - b.rank || modelLabel(a.model).localeCompare(modelLabel(b.model)))
-      .slice(0, 30)
-      .map(item => item.model)
+  if (debouncedModelQuery.value.trim()) {
+    return filterAiModelsByQuery(models.value, debouncedModelQuery.value, 30)
   }
   return models.value
     .filter(item => item.defaultModel === '0' || item.enabled === '0')
