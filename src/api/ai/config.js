@@ -12,8 +12,25 @@ export function testAiProvider(data) {
   return request({ url: '/ai/config/provider/test', method: 'post', data, headers: { repeatSubmit: false } })
 }
 
-export function syncAiModels() {
-  return request({ url: '/ai/config/models/sync', method: 'post', headers: { repeatSubmit: false } })
+export function discoverAiModels() {
+  return request({ url: '/ai/config/models/discover', method: 'post', headers: { repeatSubmit: false } })
+}
+
+export function addAiModels(modelCodes) {
+  return request({
+    url: '/ai/config/models',
+    method: 'post',
+    data: { modelCodes },
+    headers: { repeatSubmit: false }
+  })
+}
+
+export function removeAiModel(modelId) {
+  return request({
+    url: `/ai/config/models/${modelId}`,
+    method: 'delete',
+    headers: { repeatSubmit: false }
+  })
 }
 
 export function listAiModels() {
@@ -38,6 +55,14 @@ export function testAiModelChat(modelId) {
 
 export function testAiModelTools(modelId) {
   return request({ url: `/ai/config/models/${modelId}/test-tools`, method: 'post', headers: { repeatSubmit: false } })
+}
+
+export function detectAiModelCapabilities(modelId) {
+  return request({
+    url: `/ai/config/models/${modelId}/detect-capabilities`,
+    method: 'post',
+    headers: { repeatSubmit: false }
+  })
 }
 
 export function setDefaultAiReasoning(modelId, reasoningEffort) {
