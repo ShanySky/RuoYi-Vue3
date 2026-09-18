@@ -118,7 +118,7 @@ const queryParams = reactive({
 /** 查询授权用户列表 */
 function getList() {
   loading.value = true
-  allocatedUserList(queryParams).then(response => {
+  return allocatedUserList(queryParams).then(response => {
     userList.value = response.rows
     total.value = response.total
     loading.value = false
