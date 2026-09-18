@@ -178,7 +178,7 @@ const useAiStore = defineStore('ai-assistant', {
         }
 
         const activeStatus = String(this.activeRun?.status || '')
-        if (safeAfterReload && this.activeRun?.runId && ['RUNNING', 'WAITING_TOOL', 'CANCEL_REQUESTED'].includes(activeStatus)) {
+        if (safeAfterReload && this.activeRun?.runId && ['RUNNING', 'WAITING_TOOL', 'COMPACTING', 'CANCEL_REQUESTED'].includes(activeStatus)) {
           try {
             await cancelAiRun(this.activeRun.runId, 'CLIENT_RELOAD')
             this.activeRun = null
