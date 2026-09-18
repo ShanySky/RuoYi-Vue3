@@ -164,7 +164,19 @@ async function invokeNavigation(args) {
   }
 }
 
-export async function invokeFrontendTool(name, args) {
+function assertCurrentPageRuntime(expectedRuntime) {
+  if (!expectedRuntime) return
+  const current = getCurrentPageRuntime()
+  const sameRoute = normalizePath(current.route) === normalizePath(expectedRuntime.route)
+  const sameInstance = current.pageInstanceId === expectedRuntime.pageInstanceId
+  const sameVersion = current.pageVersion === expectedRuntime.pageVersion
+  if (!sameRoute || !sameInstance || !sameVersion) {
+    throw new Error('页面已经切换或页面能力实例已刷新，旧页面工具已失效')
+  }
+}
+
+export async function invokeFrontendTool(name, args, expectedRuntime) {
+  assertCurrentPageRuntime(expectedRuntime)
   if (name === 'app_navigate') return await invokeNavigation(args)
 
   const tool = activeTools.get(name)
