@@ -459,68 +459,209 @@ function submitForm() {
 }
 
 
-const aiTools = [
-  {
-    name: 'page_system_user_search',
-    description: '在当前用户管理页面设置查询条件并执行查询',
-    requiredPermission: 'system:user:list',
-    inputSchema: { type: 'object', properties: { userName: { type: 'string', description: '用户账号关键字' }, phonenumber: { type: 'string', description: '手机号' }, status: { type: 'string', enum: ['0', '1'], description: '0正常，1停用' } }, additionalProperties: false },
-    handler: async args => {
-      queryParams.value.userName = args.userName || undefined
-      queryParams.value.phonenumber = args.phonenumber || undefined
-      queryParams.value.status = args.status || undefined
-      await handleQuery()
-      return { total: total.value, rows: userList.value.map(item => ({ userId: item.userId, userName: item.userName, nickName: item.nickName })) }
-    }
-  },
-  {
-    name: 'page_system_user_edit_open',
-    description: '打开指定 userId 的用户编辑弹窗',
-    requiredPermission: 'system:user:edit',
-    inputSchema: { type: 'object', properties: { userId: { type: 'integer', description: '用户ID' } }, required: ['userId'], additionalProperties: false },
-    handler: async args => {
-      if (!args.userId) throw new Error('缺少 userId')
-      const data = await handleUpdate({ userId: args.userId })
-      return { opened: true, userId: data.userId, userName: data.userName, nickName: data.nickName }
-    }
-  },
-  {
-    name: 'page_system_user_edit_set_fields',
-    description: '修改当前已打开的用户编辑表单字段但不保存；仅允许用户昵称 nickName、手机号、邮箱、性别、状态、备注，不支持修改登录账号 userName',
-    requiredPermission: 'system:user:edit',
-    inputSchema: { type: 'object', properties: { nickName: { type: 'string' }, phonenumber: { type: 'string' }, email: { type: 'string' }, sex: { type: 'string', enum: ['0', '1', '2'] }, status: { type: 'string', enum: ['0', '1'] }, remark: { type: 'string' } }, additionalProperties: false },
-    handler: async args => {
-      if (!open.value || !form.value.userId) throw new Error('当前没有打开用户编辑弹窗')
-      const allowed = ['nickName', 'phonenumber', 'email', 'sex', 'status', 'remark']
-      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) form.value[key] = args[key]
-      await nextTick()
-      return { userId: form.value.userId, changedFields: allowed.filter(key => Object.prototype.hasOwnProperty.call(args, key)), saved: false }
-    }
-  },
-  {
-    name: 'page_system_user_edit_submit',
-    description: '提交当前用户编辑表单并真实保存到系统',
-    requiredPermission: 'system:user:edit',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    handler: async () => {
-      if (!open.value || !form.value.userId) throw new Error('当前没有可提交的用户编辑表单')
-      return await submitFormCore()
-    }
-  }
-]
+function getUserAiRows() {
+  return userList.value.slice(0, 50).map(item => ({
+    userId: item.userId,
+    userName: item.userName,
+    nickName: item.nickName,
+    deptId: item.deptId,
+    deptName: item.dept?.deptName,
+    phonenumber: item.phonenumber,
+    email: item.email,
+    sex: item.sex,
+    status: item.status,
+    createTime: item.createTime
+  }))
+}
 
-function getAiPageContext() {
+function getUserAiFormSnapshot() {
+  const value = form.value || {}
   return {
-    pageName: '用户管理',
-    query: { userName: queryParams.value.userName, phonenumber: queryParams.value.phonenumber, status: queryParams.value.status },
-    total: total.value,
-    rows: userList.value.slice(0, 10).map(item => ({ userId: item.userId, userName: item.userName, nickName: item.nickName })),
-    selectedIds: ids.value,
-    editDialog: { open: open.value, userId: open.value ? form.value.userId : undefined, userName: open.value ? form.value.userName : undefined, nickName: open.value ? form.value.nickName : undefined }
+    userId: value.userId,
+    userName: value.userName,
+    nickName: value.nickName,
+    deptId: value.deptId,
+    phonenumber: value.phonenumber,
+    email: value.email,
+    sex: value.sex,
+    status: value.status,
+    postIds: value.postIds || [],
+    roleIds: value.roleIds || [],
+    remark: value.remark
   }
 }
 
-useAiPageTools('system.user', aiTools, getAiPageContext)
+const userAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '用户管理',
+  toolPrefix: 'page_system_user',
+  queryFields: [
+    { key: 'userName', label: '用户名称', description: '登录账号关键字' },
+    { key: 'phonenumber', label: '手机号码' },
+    { key: 'status', label: '状态', description: '0正常，1停用' },
+    { key: 'deptId', label: '部门ID', type: 'integer' },
+    { key: 'dateRange', label: '创建时间范围', type: 'array' },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' }
+  ],
+  formFields: [
+    { key: 'userName', label: '用户名称', description: '仅新增用户时可设置；已有用户登录账号不可修改' },
+    { key: 'password', label: '用户密码', description: '仅新增用户时可设置' },
+    { key: 'nickName', label: '用户昵称', required: true },
+    { key: 'deptId', label: '归属部门', type: 'integer' },
+    { key: 'phonenumber', label: '手机号码' },
+    { key: 'email', label: '邮箱' },
+    { key: 'sex', label: '用户性别', description: '0男，1女，2未知' },
+    { key: 'status', label: '状态', description: '0正常，1停用' },
+    { key: 'postIds', label: '岗位ID列表', type: 'array' },
+    { key: 'roleIds', label: '角色ID列表', type: 'array' },
+    { key: 'remark', label: '备注' }
+  ],
+  query: {
+    permission: 'system:user:list',
+    apply: async args => {
+      const allowed = ['userName', 'phonenumber', 'status', 'deptId', 'pageNum', 'pageSize']
+      for (const key of allowed) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      }
+      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+      queryParams.value.pageNum = Number(queryParams.value.pageNum || 1)
+    },
+    run: handleQuery,
+    reset: async () => resetQuery(),
+    result: () => ({
+      total: total.value,
+      pageNum: queryParams.value.pageNum,
+      pageSize: queryParams.value.pageSize,
+      rows: getUserAiRows()
+    })
+  },
+  form: {
+    addPermission: 'system:user:add',
+    editPermission: 'system:user:edit',
+    recordIdKey: 'userId',
+    recordIdLabel: '用户ID',
+    openAdd: handleAdd,
+    openEdit: userId => handleUpdate({ userId }),
+    snapshot: getUserAiFormSnapshot,
+    setFields: async (args, mode) => {
+      if (!open.value) throw new Error('当前没有打开用户表单')
+      const common = ['nickName', 'deptId', 'phonenumber', 'email', 'sex', 'status', 'postIds', 'roleIds', 'remark']
+      const allowed = mode === 'add' ? ['userName', 'password', ...common] : common
+      const changedFields = []
+      for (const key of allowed) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) {
+          form.value[key] = args[key]
+          changedFields.push(key)
+        }
+      }
+      await nextTick()
+      return { mode, changedFields, saved: false, form: getUserAiFormSnapshot() }
+    },
+    submit: async mode => {
+      if (!open.value) throw new Error('当前没有可提交的用户表单')
+      const adding = form.value.userId == undefined
+      if ((mode === 'add') !== adding) throw new Error('当前表单模式已经变化，请重新打开表单')
+      return await submitFormCore()
+    }
+  },
+  actions: [
+    {
+      suffix: 'view',
+      permission: 'system:user:list',
+      label: '查看用户详情',
+      inputSchema: { type: 'object', properties: { userId: { type: 'integer' } }, required: ['userId'], additionalProperties: false },
+      handler: async args => {
+        handleViewData({ userId: args.userId })
+        return { opened: true, userId: args.userId }
+      }
+    },
+    {
+      suffix: 'delete',
+      permission: 'system:user:remove',
+      label: '删除用户',
+      inputSchema: { type: 'object', properties: { userIds: { type: 'array', items: { type: 'integer' } } }, required: ['userIds'], additionalProperties: false },
+      handler: async args => {
+        const userIds = Array.isArray(args.userIds) ? args.userIds.filter(id => id && id !== 1) : []
+        if (!userIds.length) throw new Error('没有可删除的用户ID')
+        await delUser(userIds.join(','))
+        await getList()
+        return { deletedUserIds: userIds }
+      }
+    },
+    {
+      suffix: 'change_status',
+      permission: 'system:user:edit',
+      label: '启用或停用用户',
+      inputSchema: { type: 'object', properties: { userId: { type: 'integer' }, status: { type: 'string', enum: ['0', '1'] } }, required: ['userId', 'status'], additionalProperties: false },
+      handler: async args => {
+        if (!args.userId || args.userId === 1) throw new Error('不能修改该用户状态')
+        await changeUserStatus(args.userId, args.status)
+        await getList()
+        return { userId: args.userId, status: args.status }
+      }
+    },
+    {
+      suffix: 'reset_password',
+      permission: 'system:user:resetPwd',
+      label: '重置用户密码',
+      inputSchema: { type: 'object', properties: { userId: { type: 'integer' }, password: { type: 'string' } }, required: ['userId', 'password'], additionalProperties: false },
+      handler: async args => {
+        if (!args.userId || args.userId === 1 || !args.password) throw new Error('缺少有效用户ID或新密码')
+        await resetUserPwd(args.userId, args.password)
+        return { userId: args.userId, passwordChanged: true }
+      }
+    },
+    {
+      suffix: 'auth_role',
+      permission: 'system:user:edit',
+      label: '进入用户角色分配页面',
+      inputSchema: { type: 'object', properties: { userId: { type: 'integer' } }, required: ['userId'], additionalProperties: false },
+      handler: async args => {
+        await router.push('/system/user-auth/role/' + args.userId)
+        return { navigated: true, userId: args.userId }
+      }
+    },
+    {
+      suffix: 'import_open',
+      permission: 'system:user:import',
+      label: '打开用户导入窗口',
+      handler: async () => {
+        handleImport()
+        return { opened: true }
+      }
+    },
+    {
+      suffix: 'export',
+      permission: 'system:user:export',
+      label: '按当前查询条件导出用户',
+      handler: async () => {
+        handleExport()
+        return { started: true, query: { ...queryParams.value } }
+      }
+    }
+  ],
+  getRows: getUserAiRows,
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value, dateRange: [...dateRange.value] },
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+    visibleColumns: Object.entries(columns.value).filter(([, value]) => value.visible)
+      .map(([key, value]) => ({ key, label: value.label })),
+    form: {
+      open: open.value,
+      mode: open.value ? (form.value.userId == undefined ? 'add' : 'edit') : null,
+      value: open.value ? getUserAiFormSnapshot() : null,
+      postOptions: open.value ? postOptions.value.map(item => ({ postId: item.postId, postName: item.postName, status: item.status })) : [],
+      roleOptions: open.value ? roleOptions.value.map(item => ({ roleId: item.roleId, roleName: item.roleName, status: item.status })) : []
+    }
+  })
+})
+
+useAiPageTools('system.user', userAiCapabilities.tools, userAiCapabilities.getContext, {
+  pageName: '用户管理',
+  route: '/system/user'
+})
 
 onMounted(() => {
   getDeptTree()
