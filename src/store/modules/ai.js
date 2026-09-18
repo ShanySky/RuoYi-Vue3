@@ -59,6 +59,7 @@ const useAiStore = defineStore('ai-assistant', {
     draft: sessionGet(DRAFT_KEY) || '',
     history: [],
     restoring: false,
+    modelFallbackNotice: null,
     messageSeq: 0
   }),
   getters: {
@@ -93,14 +94,27 @@ const useAiStore = defineStore('ai-assistant', {
       const valid = this.models.find(item => item.modelId === this.modelId)
       if (!valid) {
         const preferredId = this.preferences?.defaultModelId
-        const preferred = this.models.find(item => item.modelId === preferredId)
+        const preferredModel = this.models.find(item => item.modelId === preferredId)
+        const preferred = preferredModel
           || this.models.find(item => item.defaultModel === '0')
           || this.models[0]
         this.modelId = preferred?.modelId
-        this.reasoningEffort = preferred?.modelId === preferredId
+        this.reasoningEffort = preferredModel
           ? (this.preferences.defaultReasoningEffort || preferred?.defaultReasoningEffort || null)
           : (preferred?.defaultReasoningEffort || null)
+        if (preferredId && !preferredModel && preferred?.modelId) {
+          this.modelFallbackNotice = {
+            source: 'preference',
+            requestedModelId: preferredId,
+            actualModelId: preferred.modelId
+          }
+        }
       }
+    },
+    consumeModelFallbackNotice() {
+      const notice = this.modelFallbackNotice
+      this.modelFallbackNotice = null
+      return notice
     },
     setDraft(value) {
       this.draft = value || ''
@@ -150,8 +164,17 @@ const useAiStore = defineStore('ai-assistant', {
         this.activeRun = data.activeRun || null
         this.pendingTools = data.pendingTools || []
         this.checkpoint = data.checkpoint || null
-        this.modelId = conversation.modelId || this.modelId
-        this.reasoningEffort = conversation.reasoningEffort || null
+        const restoredModel = this.models.find(item => item.modelId === conversation.modelId)
+        if (restoredModel) {
+          this.modelId = restoredModel.modelId
+          this.reasoningEffort = conversation.reasoningEffort || restoredModel.defaultReasoningEffort || null
+        } else if (conversation.modelId && this.modelId) {
+          this.modelFallbackNotice = {
+            source: 'conversation',
+            requestedModelId: conversation.modelId,
+            actualModelId: this.modelId
+          }
+        }
 
         const activeStatus = String(this.activeRun?.status || '')
         if (safeAfterReload && this.activeRun?.runId && ['RUNNING', 'WAITING_TOOL', 'CANCEL_REQUESTED'].includes(activeStatus)) {
@@ -191,6 +214,7 @@ const useAiStore = defineStore('ai-assistant', {
         this.checkpoint = null
         this.history = []
         this.models = []
+        this.modelFallbackNotice = null
         this.modelId = undefined
         this.reasoningEffort = null
         this.preferencesLoaded = false
