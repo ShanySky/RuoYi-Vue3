@@ -792,8 +792,8 @@ try {
     pageVersion: 1,
     pageContext: {},
     frontendTools: [{
-      name: 'page_system_user_edit_submit',
-      description: '保存用户',
+      name: 'page_unregistered_admin_write',
+      description: '未注册的高权限写操作',
       inputSchema: { type: 'object', properties: {} }
     }]
   })
