@@ -157,6 +157,7 @@
 <script setup name="CacheList">
 import { listCacheName, listCacheKey, getCacheValue, clearCacheName, clearCacheKey, clearCacheAll } from "@/api/monitor/cache"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { useAiPageTools } from "@/ai/toolRegistry"
 
 const { proxy } = getCurrentInstance()
 
