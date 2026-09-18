@@ -137,7 +137,8 @@ export function getFrontendToolDefinitions() {
     .map(tool => ({
       name: tool.name,
       description: tool.description || tool.name,
-      inputSchema: tool.inputSchema || { type: 'object', properties: {}, additionalProperties: false }
+      inputSchema: (typeof tool.inputSchema === 'function' ? tool.inputSchema() : tool.inputSchema)
+        || { type: 'object', properties: {}, additionalProperties: false }
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
   definitions.unshift(navigationDefinition())
