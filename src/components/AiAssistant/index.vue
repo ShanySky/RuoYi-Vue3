@@ -117,6 +117,15 @@
               </div>
             </template>
 
+            <div v-if="pendingConfirmation" class="write-confirm-card" data-testid="ai-write-confirmation">
+              <div class="write-confirm-title">需要确认写入操作</div>
+              <div class="write-confirm-description">{{ pendingConfirmation.description }}</div>
+              <div class="write-confirm-actions">
+                <el-button size="small" @click="resolveWriteConfirmation(false)">取消</el-button>
+                <el-button size="small" type="warning" @click="resolveWriteConfirmation(true)">确认执行</el-button>
+              </div>
+            </div>
+
             <div v-if="busy" class="working-line">
               <div class="message-avatar assistant-avatar"><el-icon><MagicStick /></el-icon></div>
               <div class="working-card">
@@ -196,7 +205,7 @@ import {
   ChatDotRound, ChatLineRound, CircleCheck, Close, EditPen, FullScreen,
   MagicStick, ScaleToOriginal, Setting
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
 import { listEnabledAiModels } from '@/api/ai/config'
@@ -224,6 +233,7 @@ const settingsOpen = ref(false)
 const dockWidth = ref(Number(localStorage.getItem('ai-dock-width')) || 560)
 const busy = ref(false)
 const stopping = ref(false)
+const pendingConfirmation = ref(null)
 const escArmed = ref(false)
 const panelRef = ref(null)
 const modelPickerRef = ref(null)
@@ -244,6 +254,7 @@ let activeAbortController = null
 let conversationCreationPromise = null
 let escArmedAt = 0
 let escTimer = null
+let pendingConfirmationResolve = null
 
 function append(role, text) {
   messages.value.push({ id: ++seq, role, text: String(text ?? '') })
