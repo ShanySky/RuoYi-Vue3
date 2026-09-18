@@ -11,6 +11,24 @@ export function sendAiTurn(data, options = {}) {
   })
 }
 
+export function createAiConversation(data = {}) {
+  return request({
+    url: '/ai/chat/conversations',
+    method: 'post',
+    data,
+    headers: { repeatSubmit: false }
+  })
+}
+
+export function cancelAiRunByClientKey(clientRunKey, reason = 'USER_STOP') {
+  return request({
+    url: `/ai/chat/runs/client/${encodeURIComponent(clientRunKey)}/cancel`,
+    method: 'post',
+    data: { reason },
+    headers: { repeatSubmit: false }
+  })
+}
+
 export function cancelAiRun(runId, reason = 'USER_STOP') {
   return request({
     url: `/ai/chat/runs/${runId}/cancel`,
