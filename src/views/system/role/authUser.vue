@@ -95,6 +95,7 @@
 import selectUser from "./selectUser"
 import { allocatedUserList, unallocatedUserList, authUserCancel, authUserCancelAll, authUserSelectAll } from "@/api/system/role"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { useAiPageTools } from "@/ai/toolRegistry"
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
