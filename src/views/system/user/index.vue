@@ -190,6 +190,7 @@ import ExcelImportDialog from "@/components/ExcelImportDialog"
 import UserViewDrawer from "./view"
 import { usePasswordRule } from "@/utils/passwordRule"
 import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, updateUser, addUser, deptTreeSelect } from "@/api/system/user"
 
 const router = useRouter()
@@ -406,12 +407,13 @@ function cancel() {
 /** 新增按钮操作 */
 function handleAdd() {
   reset()
-  getUser().then(response => {
+  return getUser().then(response => {
     postOptions.value = response.posts
     roleOptions.value = response.roles
     open.value = true
     title.value = "添加用户"
     form.value.password = initPassword.value
+    return form.value
   })
 }
 
