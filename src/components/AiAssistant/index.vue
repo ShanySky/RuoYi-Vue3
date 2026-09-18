@@ -1,5 +1,6 @@
 <template>
-  <div class="ai-assistant-host">
+  <el-config-provider :z-index="3100">
+    <div class="ai-assistant-host">
     <el-tooltip v-if="mode === 'closed'" content="AI 助手" placement="left">
       <el-button
         data-testid="ai-assistant-open"
@@ -197,7 +198,8 @@
         </div>
       </div>
     </section>
-  </div>
+    </div>
+  </el-config-provider>
 </template>
 
 <script setup>
@@ -664,7 +666,7 @@ onBeforeUnmount(() => {
   position: fixed;
   right: 24px;
   bottom: 28px;
-  z-index: 2000;
+  z-index: 3000;
   width: 44px;
   height: 44px;
   font-size: 19px;
@@ -673,7 +675,7 @@ onBeforeUnmount(() => {
 
 .ai-panel {
   position: fixed;
-  z-index: 2000;
+  z-index: 3000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
