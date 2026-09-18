@@ -865,6 +865,19 @@ onBeforeUnmount(() => {
 }
 .tool-status .el-icon { color: var(--el-color-success); }
 
+.write-confirm-card {
+  margin: 0 0 12px 35px;
+  padding: 10px 11px;
+  color: var(--el-text-color-primary);
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 7px;
+}
+.write-confirm-title { color: var(--el-color-warning-dark-2); font-size: 12px; font-weight: 600; }
+.write-confirm-description { margin-top: 4px; font-size: var(--ai-chat-font-size, 13px); line-height: 1.55; }
+.write-confirm-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 8px; }
+.write-confirm-actions :deep(.el-button + .el-button) { margin-left: 0; }
+
 .working-line { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .working-card {
   display: flex;
