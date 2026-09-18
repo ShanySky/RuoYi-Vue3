@@ -3,7 +3,7 @@
     <template #reference>
       <el-button data-testid="ai-model-picker-trigger" class="model-trigger" text :disabled="disabled">
         <span class="model-trigger-label">{{ selectedLabel }}</span>
-        <span class="model-trigger-arrow">⌄</span>
+        <el-icon class="model-trigger-arrow"><ArrowDown /></el-icon>
       </el-button>
     </template>
 
@@ -70,6 +70,7 @@
 
 <script setup>
 import { refDebounced } from '@vueuse/core'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { filterAiModelsByQuery, getRecentAiModelIds, rememberAiModel, suggestAiModels } from '@/ai/modelSearch'
 
 const props = defineProps({
@@ -107,7 +108,7 @@ function reasoningOptions(model) {
 }
 
 function effortLabel(value) {
-  const labels = { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh' }
+  const labels = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高' }
   return labels[value] || value
 }
 
@@ -144,7 +145,7 @@ watch(visible, value => {
 <style scoped>
 .model-trigger { max-width: 210px; padding: 4px 6px; }
 .model-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.model-trigger-arrow { margin-left: 5px; color: var(--el-text-color-secondary); }
+.model-trigger-arrow { width: 13px; margin-left: 5px; color: var(--el-text-color-secondary); font-size: 13px; }
 .picker { min-height: 120px; }
 .picker-hint, .advanced-subtitle { margin: 9px 2px 6px; color: var(--el-text-color-secondary); font-size: 12px; }
 .model-list { max-height: 310px; overflow-y: auto; }
