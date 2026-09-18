@@ -515,6 +515,10 @@ try {
   assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${historyConversationId}\\b`))
 
   console.log('21. F5 during pending WRITE cancels the orphaned run and never persists the write')
+  await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
+  await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
   await page.getByTestId('ai-assistant-new-conversation').click()
   await sendByButton('STEER_WRITE_OLD')
   const refreshPendingWrite = page.getByTestId('ai-write-confirmation')
