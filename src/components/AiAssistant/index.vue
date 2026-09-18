@@ -214,7 +214,9 @@ import { listEnabledAiModels } from '@/api/ai/config'
 import {
   cancelAiRun, cancelAiRunByClientKey, createAiConversation, sendAiTurn
 } from '@/api/ai/chat'
-import { getCurrentPageContext, getFrontendToolDefinitions, invokeFrontendTool } from '@/ai/toolRegistry'
+import {
+  getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
+} from '@/ai/toolRegistry'
 import useAiStore from '@/store/modules/ai'
 
 const emit = defineEmits(['dock-change'])
@@ -498,9 +500,12 @@ async function stopCurrentRun(reason = 'USER_STOP') {
 }
 
 function buildRequest(extra) {
+  const runtime = getCurrentPageRuntime()
   const payload = {
     conversationId: conversationId.value,
-    route: route.path,
+    route: runtime.route || route.path,
+    pageInstanceId: runtime.pageInstanceId || null,
+    pageVersion: runtime.pageVersion || null,
     pageContext: getCurrentPageContext(),
     frontendTools: getFrontendToolDefinitions(),
     ...extra
