@@ -965,6 +965,66 @@ try {
   }
   assert.equal(await page.getByText('只读查看 AI Conversation / Run / Tool / Checkpoint；本页没有继续、重试、接管或执行 Tool 的入口。', { exact: true }).count(), 1)
 
+  console.log('31a. Representative semantic Page Capability tools work across system, monitor and generator modules')
+  async function invokeRegisteredPageTool(route, toolName, args = {}) {
+    await page.goto(`${APP_URL}${route}`, { waitUntil: 'networkidle' })
+    await page.waitForFunction(async ({ expectedRoute, expectedTool }) => {
+      try {
+        const registry = await import('/src/ai/toolRegistry.js')
+        const runtime = registry.getCurrentPageRuntime()
+        const definitions = registry.getFrontendToolDefinitions()
+        return runtime.route === expectedRoute
+          && Boolean(runtime.pageInstanceId)
+          && definitions.some(item => item.name === expectedTool)
+      }
+      catch {
+        return false
+      }
+    }, { expectedRoute: route, expectedTool: toolName }, { timeout: 20000 })
+
+    return await page.evaluate(async ({ expectedRoute, expectedTool, toolArgs }) => {
+      const registry = await import('/src/ai/toolRegistry.js')
+      const runtime = registry.getCurrentPageRuntime()
+      const definitions = registry.getFrontendToolDefinitions()
+      if (runtime.route !== expectedRoute || !runtime.pageInstanceId) {
+        throw new Error(`AI Page Capability runtime not ready for ${expectedRoute}`)
+      }
+      if (!definitions.some(item => item.name === expectedTool)) {
+        throw new Error(`Expected semantic tool not registered: ${expectedTool}`)
+      }
+      const result = await registry.invokeFrontendTool(expectedTool, toolArgs, runtime)
+      return {
+        runtime,
+        toolNames: definitions.map(item => item.name),
+        result
+      }
+    }, { expectedRoute: route, expectedTool: toolName, toolArgs: args })
+  }
+
+  const menuCapability = await invokeRegisteredPageTool('/system/menu', 'page_system_menu_search', {})
+  assert.ok(Array.isArray(menuCapability.result.rows) && menuCapability.result.rows.length > 0)
+  assert.equal(menuCapability.runtime.pageName, '菜单管理')
+
+  const deptCapability = await invokeRegisteredPageTool('/system/dept', 'page_system_dept_search', {})
+  assert.ok(Array.isArray(deptCapability.result.rows) && deptCapability.result.rows.length > 0)
+  assert.equal(deptCapability.runtime.pageName, '部门管理')
+
+  const dictCapability = await invokeRegisteredPageTool('/system/dict', 'page_system_dict_search', { dictType: 'sys_user_sex' })
+  assert.ok(Array.isArray(dictCapability.result.rows))
+  assert.ok(dictCapability.result.rows.some(item => item.dictType === 'sys_user_sex'))
+
+  const cacheCapability = await invokeRegisteredPageTool('/monitor/cache', 'page_monitor_cache_view', {})
+  assert.ok(cacheCapability.result.redisVersion)
+  assert.ok(Number(cacheCapability.result.dbSize) >= 0)
+
+  const serverCapability = await invokeRegisteredPageTool('/monitor/server', 'page_monitor_server_view', {})
+  assert.ok(serverCapability.result.cpu)
+  assert.ok(serverCapability.result.jvm)
+
+  const generatorCapability = await invokeRegisteredPageTool('/tool/gen', 'page_tool_gen_search', {})
+  assert.ok(Array.isArray(generatorCapability.result.rows))
+  assert.ok(generatorCapability.toolNames.includes('page_tool_gen_preview'))
+
   await screenshot('ai-agent-model-selection-e2e-success')
   console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
 }
