@@ -70,7 +70,7 @@
 
 <script setup>
 import { refDebounced } from '@vueuse/core'
-import { filterAiModelsByQuery } from '@/ai/modelSearch'
+import { filterAiModelsByQuery, getRecentAiModelIds, rememberAiModel, suggestAiModels } from '@/ai/modelSearch'
 
 const props = defineProps({
   models: { type: Array, default: () => [] },
@@ -92,35 +92,13 @@ function modelLabel(model) {
   return model?.displayName || model?.modelCode || '未命名模型'
 }
 
-function recentIds() {
-  try {
-    const value = JSON.parse(localStorage.getItem('ai-recent-models') || '[]')
-    return Array.isArray(value) ? value : []
-  } catch {
-    return []
-  }
-}
-
-function remember(modelId) {
-  const next = [modelId, ...recentIds().filter(id => id !== modelId)].slice(0, 5)
-  localStorage.setItem('ai-recent-models', JSON.stringify(next))
-}
-
 const visibleModels = computed(() => {
   const list = [...props.models]
   if (debouncedQuery.value.trim()) {
     return filterAiModelsByQuery(list, debouncedQuery.value, 20)
   }
 
-  const ids = []
-  const push = id => {
-    if (id != null && !ids.includes(id) && list.some(item => item.modelId === id)) ids.push(id)
-  }
-  push(props.modelValue)
-  list.filter(item => item.defaultModel === '0').forEach(item => push(item.modelId))
-  recentIds().forEach(push)
-  list.filter(item => item.enabled === '0').slice(0, 4).forEach(item => push(item.modelId))
-  return ids.slice(0, 7).map(id => list.find(item => item.modelId === id)).filter(Boolean)
+  return suggestAiModels(list, [props.modelValue, ...getRecentAiModelIds()], 7)
 })
 
 function reasoningOptions(model) {
@@ -136,7 +114,7 @@ function effortLabel(value) {
 function chooseModel(model) {
   emit('update:modelValue', model.modelId)
   emit('update:reasoningEffort', model.defaultReasoningEffort || null)
-  remember(model.modelId)
+  rememberAiModel(model.modelId)
   visible.value = false
   query.value = ''
   advancedModel.value = null
@@ -149,7 +127,7 @@ function openAdvanced(model) {
 function chooseEffort(effort) {
   emit('update:modelValue', advancedModel.value.modelId)
   emit('update:reasoningEffort', effort)
-  remember(advancedModel.value.modelId)
+  rememberAiModel(advancedModel.value.modelId)
   visible.value = false
   query.value = ''
   advancedModel.value = null
