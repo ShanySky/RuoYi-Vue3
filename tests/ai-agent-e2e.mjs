@@ -632,6 +632,32 @@ try {
   assert.equal(Number(await page2.evaluate(() => sessionStorage.getItem('ruoyi-ai-active-conversation'))), tabTwoConversationId)
   await page2.close()
 
+  console.log('25. Disabled user default model falls back to the system default with a visible notice')
+  await apiJson(token, '/ai/preferences', 'PUT', {
+    defaultModelId: secondaryModel.modelId,
+    defaultReasoningEffort: 'low'
+  })
+  await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/enabled`, 'PUT', { enabled: false })
+  await page.evaluate(() => sessionStorage.removeItem('ruoyi-ai-active-conversation'))
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.getByText('你的默认模型当前不可用，已切换为系统默认模型', { exact: true }).waitFor({ timeout: 15000 })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  assert.equal((await page.locator('.context-label').innerText()).trim(), '新会话')
+  await page.getByTestId('ai-model-picker-trigger').getByText('mock-agent-model', { exact: true }).waitFor()
+  await sendByButton('G_MODEL_FALLBACK')
+  await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).last().waitFor({ timeout: 30000 })
+  const fallbackConversationLabel = await page.locator('.context-label').innerText()
+  const fallbackConversationId = Number(fallbackConversationLabel.match(/#(\d+)/)?.[1])
+  const fallbackDetail = await apiJson(token, `/ai/chat/conversations/${fallbackConversationId}`)
+  assert.equal(fallbackDetail.conversation.modelId, primaryModel.modelId)
+  assert.equal(fallbackDetail.conversation.reasoningEffort, 'high')
+  await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/enabled`, 'PUT', { enabled: true })
+  await apiJson(token, '/ai/preferences', 'PUT', {
+    defaultModelId: primaryModel.modelId,
+    defaultReasoningEffort: 'high'
+  })
+
   await screenshot('ai-agent-model-selection-e2e-success')
   console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
 }
