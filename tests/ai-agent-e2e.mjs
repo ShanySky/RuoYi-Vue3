@@ -462,11 +462,13 @@ try {
   await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).last().waitFor({ timeout: 30000 })
 
   await compactionComposer.fill('UI_COMPACT_TWO ' + 'v'.repeat(11000))
+  const beforeCompactionReplyCount = await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).count()
   await page.getByRole('button', { name: '发送', exact: true }).click()
   await page.getByText('正在整理较早的会话上下文…', { exact: true }).waitFor({ timeout: 15000 })
   assert.equal(await page.locator('.el-message-box:visible').count(), 0,
     'Automatic compaction must not interrupt the user with a modal confirmation')
-  await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).last().waitFor({ timeout: 30000 })
+  await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).nth(beforeCompactionReplyCount)
+    .waitFor({ timeout: 30000 })
   const uiCompactionLabel = await page.locator('.context-label').innerText()
   const uiCompactionConversationId = Number(uiCompactionLabel.match(/#(\d+)/)?.[1])
   const uiCompactionAudit = await apiJson(token, `/ai/admin/audit/${uiCompactionConversationId}`)
