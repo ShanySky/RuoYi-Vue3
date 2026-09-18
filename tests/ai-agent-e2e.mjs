@@ -809,26 +809,37 @@ try {
   const defaultThresholdOne = await apiJson(token, '/ai/chat/turn', 'POST', {
     modelId: primaryModel.modelId,
     reasoningEffort: 'high',
-    userMessage: 'I_DEFAULT_64K_75_ONE ' + 'a'.repeat(90000),
+    userMessage: 'I_DEFAULT_64K_75_ONE ' + 'a'.repeat(70000),
     route: '/index',
     pageContext: {},
     frontendTools: []
   })
   assert.equal(defaultThresholdOne.type, 'MESSAGE')
-  const beforeDefaultThreshold = await apiJson(token, `/ai/admin/audit/${defaultThresholdOne.conversationId}`)
-  assert.equal((beforeDefaultThreshold.checkpoints || []).length, 0,
-    'A single ~90k-char turn must remain below the default 64K/75% compaction threshold')
 
   const defaultThresholdTwo = await apiJson(token, '/ai/chat/turn', 'POST', {
     conversationId: defaultThresholdOne.conversationId,
     modelId: primaryModel.modelId,
     reasoningEffort: 'high',
-    userMessage: 'I_DEFAULT_64K_75_TWO ' + 'b'.repeat(115000),
+    userMessage: 'I_DEFAULT_64K_75_TWO ' + 'b'.repeat(70000),
     route: '/index',
     pageContext: {},
     frontendTools: []
   })
   assert.equal(defaultThresholdTwo.type, 'MESSAGE')
+  const belowDefaultThreshold = await apiJson(token, `/ai/admin/audit/${defaultThresholdOne.conversationId}`)
+  assert.equal((belowDefaultThreshold.checkpoints || []).length, 0,
+    'Two ~70k-char turns must still stay below the configured 64K/75% compaction threshold')
+
+  const defaultThresholdThree = await apiJson(token, '/ai/chat/turn', 'POST', {
+    conversationId: defaultThresholdOne.conversationId,
+    modelId: primaryModel.modelId,
+    reasoningEffort: 'high',
+    userMessage: 'I_DEFAULT_64K_75_THREE ' + 'c'.repeat(70000),
+    route: '/index',
+    pageContext: {},
+    frontendTools: []
+  })
+  assert.equal(defaultThresholdThree.type, 'MESSAGE')
   const afterDefaultThreshold = await apiJson(token, `/ai/admin/audit/${defaultThresholdOne.conversationId}`)
   assert.ok((afterDefaultThreshold.checkpoints || []).length >= 1,
     'Crossing the default 64K/75% threshold must create an automatic checkpoint')
@@ -836,7 +847,7 @@ try {
   assert.ok(Number(defaultThresholdCheckpoint.estimatedTokens || 0) >= Math.floor(65536 * 75 / 100),
     'Checkpoint estimated tokens must be at or above the configured 75% threshold')
   assert.ok((afterDefaultThreshold.runs || []).some(run =>
-    run.status === 'COMPLETED' && Number(run.runId) === Number(defaultThresholdTwo.runId)),
+    run.status === 'COMPLETED' && Number(run.runId) === Number(defaultThresholdThree.runId)),
     'The turn that triggers default-threshold compaction must automatically continue to completion')
 
   console.log('28. Page Capability switch is enforced by the server, not only hidden in the UI')
