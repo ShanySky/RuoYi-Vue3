@@ -243,7 +243,7 @@ function getTypeList() {
 /** 查询字典数据列表 */
 function getList() {
   loading.value = true
-  listData(queryParams.value).then(response => {
+  return listData(queryParams.value).then(response => {
     dataList.value = response.rows
     total.value = response.total
     loading.value = false
