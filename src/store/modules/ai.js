@@ -85,9 +85,18 @@ const useAiStore = defineStore('ai-assistant', {
       return this.preferences
     },
     async savePreferences(patch) {
-      const res = await saveAiPreferences({ ...this.preferences, ...patch })
-      this.preferences = { ...this.preferences, ...(res.data || {}) }
-      return this.preferences
+      const previous = { ...this.preferences }
+      const optimistic = { ...this.preferences, ...patch }
+      this.preferences = optimistic
+      try {
+        const res = await saveAiPreferences(optimistic)
+        this.preferences = { ...optimistic, ...(res.data || {}) }
+        return this.preferences
+      } catch (error) {
+        const patchStillCurrent = Object.entries(patch || {}).every(([key, value]) => this.preferences?.[key] === value)
+        if (patchStillCurrent) this.preferences = previous
+        throw error
+      }
     },
     async loadModels() {
       const res = await listEnabledAiModels()
