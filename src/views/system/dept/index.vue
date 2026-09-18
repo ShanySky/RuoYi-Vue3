@@ -348,8 +348,7 @@ const deptAiCapabilities = createAiCrudPageCapabilities({
     { key: 'deptName', label: '部门名称', required: true, inputSchema: { type: 'string', minLength: 1, maxLength: 30 } },
     { key: 'orderNum', label: '显示排序', type: 'integer', required: true, inputSchema: { type: 'integer', minimum: 0 } },
     { key: 'leader', label: '负责人' },
-    { key: 'phone', label: '联系电话', inputSchema: { type: 'string', pattern: '^1[3-9][0-9]{9}
- } },
+    { key: 'phone', label: '联系电话', inputSchema: { type: 'string', pattern: '^1[3-9][0-9]{9}$' } },
     { key: 'email', label: '邮箱', inputSchema: { type: 'string', format: 'email' } },
     { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' }
   ],
