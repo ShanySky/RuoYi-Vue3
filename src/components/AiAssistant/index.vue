@@ -551,7 +551,11 @@ async function driveTurn(extra, generation, signal) {
       }
       if (generation !== runGeneration) return
       const args = call.arguments ? JSON.parse(call.arguments) : {}
-      result = await invokeFrontendTool(call.name, args)
+      result = await invokeFrontendTool(call.name, args, {
+        route: payload.route,
+        pageInstanceId: payload.pageInstanceId,
+        pageVersion: payload.pageVersion
+      })
       if (generation !== runGeneration) return
       append('tool', `${call.description || call.name}：已执行`)
     } catch (e) {
