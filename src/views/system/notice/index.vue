@@ -314,20 +314,20 @@ const noticeAiCapabilities = createAiCrudPageCapabilities({
   queryFields: [
     { key: 'noticeTitle', label: '公告标题' },
     { key: 'createBy', label: '创建者' },
-    { key: 'status', label: '状态', options: ['0', '1'] },
+    { key: 'noticeType', label: '公告类型', options: () => (sys_notice_type?.value || []).map(item => ({ label: item.label, value: item.value })) },
     { key: 'pageNum', label: '页码', type: 'integer' },
     { key: 'pageSize', label: '每页数量', type: 'integer' }
   ],
   formFields: [
-    { key: 'noticeTitle', label: '公告标题', required: true },
-    { key: 'noticeType', label: '公告类型', required: true, options: ['1', '2'] },
-    { key: 'status', label: '状态', options: ['0', '1'] },
+    { key: 'noticeTitle', label: '公告标题', required: true, validationRules: () => rules.value.noticeTitle },
+    { key: 'noticeType', label: '公告类型', required: true, options: () => (sys_notice_type?.value || []).map(item => ({ label: item.label, value: item.value })), validationRules: () => rules.value.noticeType },
+    { key: 'status', label: '状态', options: () => (sys_notice_status?.value || []).map(item => ({ label: item.label, value: item.value })) },
     { key: 'noticeContent', label: '公告内容' }
   ],
   query: {
     permission: 'system:notice:list',
     apply: async args => {
-      for (const key of ['noticeTitle', 'createBy', 'status', 'pageNum', 'pageSize']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      for (const key of ['noticeTitle', 'createBy', 'noticeType', 'pageNum', 'pageSize']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
     },
     run: getList,
     reset: resetQuery
@@ -363,6 +363,23 @@ const noticeAiCapabilities = createAiCrudPageCapabilities({
         if (!row) throw new Error('当前列表中未找到该公告')
         handleViewData(row)
         return { opened: true, noticeId }
+      }
+    },
+    {
+      suffix: 'read_users',
+      permission: 'system:notice:list',
+      label: '查看公告已读用户',
+      inputSchema: { type: 'object', properties: { noticeId: { type: 'integer' } }, required: ['noticeId'], additionalProperties: false },
+      handler: async ({ noticeId }) => {
+        let row = noticeList.value.find(item => Number(item.noticeId) === Number(noticeId))
+        if (!row) {
+          const response = await getNotice(noticeId)
+          row = response.data
+        }
+        if (!row) throw new Error('公告不存在')
+        const dialog = proxy.$refs["readUsersRef"]
+        if (!dialog?.openForAi) throw new Error('阅读用户组件尚未就绪')
+        return await dialog.openForAi(row)
       }
     },
     {
