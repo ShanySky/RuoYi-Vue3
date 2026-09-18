@@ -17,5 +17,5 @@ export function setDefaultAiReasoning(modelId, reasoningEffort) { return request
 export function testAiModelReasoning(modelId) { return request({ url: `/ai/config/models/${modelId}/test-reasoning`, method: 'post', headers: { repeatSubmit: false } }) }
 export function setAiModelRuntimeSettings(modelId, data) { return request({ url: `/ai/config/models/${modelId}/runtime-settings`, method: 'put', data, headers: { repeatSubmit: false } }) }
 export function listAiPrompts() { return request({ url: '/ai/config/prompts', method: 'get' }) }
-export function updateAiPrompt(type, content) { return request({ url: `/ai/config/prompts/${type}`, method: 'put', data: { content }, headers: { repeatSubmit: false } }) }
+export function updateAiPrompt(type, content, enabled) { return request({ url: `/ai/config/prompts/${type}`, method: 'put', data: { content, enabled }, headers: { repeatSubmit: false } }) }
 export function restoreDefaultAiPrompt(type) { return request({ url: `/ai/config/prompts/${type}/restore-default`, method: 'post', headers: { repeatSubmit: false } }) }

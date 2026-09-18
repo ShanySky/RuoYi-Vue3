@@ -2,14 +2,16 @@
   <div class="app-container ai-config-page">
     <div class="page-heading">
       <div>
-        <div class="page-title">AI 服务配置</div>
-        <div class="page-subtitle">配置 OpenAI-compatible 服务，并只把真正需要使用的模型加入系统。</div>
+        <div class="page-title">{{ pageTitle }}</div>
+        <div class="page-subtitle">{{ pageSubtitle }}</div>
       </div>
-      <el-tag v-if="provider.enabled" type="success" effect="plain">服务已启用</el-tag>
-      <el-tag v-else type="info" effect="plain">服务未启用</el-tag>
+      <template v-if="showProvider">
+        <el-tag v-if="provider.enabled" type="success" effect="plain">服务已启用</el-tag>
+        <el-tag v-else type="info" effect="plain">服务未启用</el-tag>
+      </template>
     </div>
 
-    <el-card shadow="never" class="config-card">
+    <el-card v-if="showProvider" shadow="never" class="config-card">
       <template #header>
         <div class="section-heading">
           <div class="section-icon"><el-icon><Connection /></el-icon></div>
@@ -54,7 +56,7 @@
           <el-button :loading="testingLoad" @click="testModelLoad">
             测试模型加载
           </el-button>
-          <el-button :disabled="!remoteModels.length" @click="pickerVisible = true">
+          <el-button v-if="showModels" :disabled="!remoteModels.length" @click="pickerVisible = true">
             选择模型
           </el-button>
         </el-form-item>
@@ -70,7 +72,7 @@
       />
     </el-card>
 
-    <el-card shadow="never" class="config-card model-card">
+    <el-card v-if="showModels" shadow="never" class="config-card model-card">
       <template #header>
         <div class="model-card-header">
           <div class="section-heading">
@@ -179,12 +181,14 @@
     </el-card>
 
     <ai-model-runtime-settings-dialog
+      v-if="showModels"
       v-model="advancedVisible"
       :model="advancedModel"
       @saved="handleAdvancedSaved"
     />
 
     <ai-remote-model-picker
+      v-if="showModels"
       v-model="pickerVisible"
       :remote-models="remoteModels"
       :system-models="models"
@@ -197,6 +201,15 @@
 </template>
 
 <script setup name="AiConfig">
+const props = defineProps({
+  section: { type: String, default: 'all' }
+})
+const showProvider = computed(() => props.section !== 'models')
+const showModels = computed(() => props.section !== 'service')
+const pageTitle = computed(() => props.section === 'models' ? '模型管理' : (props.section === 'service' ? 'AI 服务' : 'AI 服务配置'))
+const pageSubtitle = computed(() => props.section === 'models'
+  ? '管理允许用户使用的系统模型、默认模型、思考档位和运行参数。'
+  : '配置 OpenAI-compatible 服务连接；系统模型在独立的模型管理页面维护。')
 import { refDebounced } from '@vueuse/core'
 import { Connection, Grid, Loading, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -204,7 +217,7 @@ import AiRemoteModelPicker from '@/components/AiRemoteModelPicker/index.vue'
 import AiModelRuntimeSettingsDialog from '@/components/AiModelRuntimeSettingsDialog/index.vue'
 import { filterAiModelsByQuery } from '@/ai/modelSearch'
 import {
-  addAiModels, detectAiModelCapabilities, getAiProvider, listAiModels, removeAiModel,
+  addAiModels, detectAiModelCapabilities, discoverAiModels, getAiProvider, listAiModels, removeAiModel,
   saveAiProvider, setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning,
   testAiModelChat, testAiModelLoad
 } from '@/api/ai/config'
@@ -313,7 +326,19 @@ async function testModelLoad() {
 }
 
 async function openPicker() {
-  if (!remoteModels.value.length) await testModelLoad()
+  if (!remoteModels.value.length) {
+    if (showProvider.value) {
+      await testModelLoad()
+    } else {
+      testingLoad.value = true
+      try {
+        const res = await discoverAiModels()
+        remoteModels.value = Array.isArray(res.data) ? res.data : []
+      } finally {
+        testingLoad.value = false
+      }
+    }
+  }
   if (remoteModels.value.length) pickerVisible.value = true
 }
 
@@ -405,7 +430,9 @@ async function removeModel(row) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadProvider(), loadModels()])
+  const tasks = [loadProvider()]
+  if (showModels.value) tasks.push(loadModels())
+  await Promise.all(tasks)
 })
 </script>
 
