@@ -267,7 +267,7 @@ import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
 import {
   archiveAiConversation, cancelAiRun, cancelAiRunByClientKey, createAiConversation,
-  getLastAiConversation, renameAiConversation, sendAiTurn
+  getAiConversation, getLastAiConversation, renameAiConversation, sendAiTurn
 } from '@/api/ai/chat'
 import {
   getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
@@ -330,6 +330,37 @@ let escArmedAt = 0
 let escTimer = null
 let restoreUndoTimer = null
 let pendingConfirmationResolve = null
+
+const COMPACTION_WORKING_TEXT = '正在整理较早的会话上下文…'
+
+async function monitorActiveRunStatus(generation, lifecycleEpoch) {
+  let sawCompaction = false
+  while (busy.value && generation === runGeneration && lifecycleEpoch === aiStore.lifecycleEpoch) {
+    const id = conversationId.value
+    if (id) {
+      try {
+        const res = await getAiConversation(id)
+        if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch || !busy.value) return
+        const activeRun = res.data?.activeRun
+        const status = activeRun?.status
+        if (status === 'COMPACTING') {
+          sawCompaction = true
+          if (activeRun?.runId) {
+            activeRunId = activeRun.runId
+            aiStore.setLiveRun(activeRun.runId, activeClientRunKey, 'COMPACTING')
+          }
+          workingText.value = COMPACTION_WORKING_TEXT
+        } else if (sawCompaction && workingText.value === COMPACTION_WORKING_TEXT) {
+          workingText.value = '上下文整理完成，正在继续当前任务…'
+          sawCompaction = false
+        }
+      } catch {
+        // Status polling is only a lightweight UI hint; the turn request remains authoritative.
+      }
+    }
+    await delay(250)
+  }
+}
 
 function append(role, text) {
   aiStore.append(role, text)
@@ -659,6 +690,7 @@ async function sendMessage() {
   busy.value = true
   stopping.value = false
   workingText.value = steering ? '正在根据最新补充重新规划…' : 'AI 正在理解你的请求…'
+  void monitorActiveRunStatus(generation, lifecycleEpoch)
 
   try {
     await driveTurn({ userMessage: text, clientRunKey }, generation, controller.signal, lifecycleEpoch)
