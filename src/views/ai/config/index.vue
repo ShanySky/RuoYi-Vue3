@@ -157,8 +157,9 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="176" align="right">
+        <el-table-column label="操作" width="236" align="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="openAdvanced(row)">高级设置</el-button>
             <el-button
               link
               type="primary"
@@ -177,6 +178,12 @@
       </el-empty>
     </el-card>
 
+    <ai-model-runtime-settings-dialog
+      v-model="advancedVisible"
+      :model="advancedModel"
+      @saved="handleAdvancedSaved"
+    />
+
     <ai-remote-model-picker
       v-model="pickerVisible"
       :remote-models="remoteModels"
@@ -194,6 +201,7 @@ import { refDebounced } from '@vueuse/core'
 import { Connection, Grid, Loading, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AiRemoteModelPicker from '@/components/AiRemoteModelPicker/index.vue'
+import AiModelRuntimeSettingsDialog from '@/components/AiModelRuntimeSettingsDialog/index.vue'
 import { filterAiModelsByQuery } from '@/ai/modelSearch'
 import {
   addAiModels, detectAiModelCapabilities, getAiProvider, listAiModels, removeAiModel,
@@ -211,6 +219,8 @@ const rules = {
 const models = ref([])
 const remoteModels = ref([])
 const pickerVisible = ref(false)
+const advancedVisible = ref(false)
+const advancedModel = ref(null)
 const systemQuery = ref('')
 const debouncedSystemQuery = refDebounced(systemQuery, 180)
 const saving = ref(false)
@@ -361,6 +371,16 @@ async function changeDefaultReasoning(row, value) {
   await setDefaultAiReasoning(row.modelId, value || null)
   await loadModels()
   ElMessage.success({ message: '默认思考档位已更新', duration: 2000 })
+}
+
+function openAdvanced(row) {
+  advancedModel.value = row
+  advancedVisible.value = true
+}
+
+async function handleAdvancedSaved() {
+  await loadModels()
+  advancedModel.value = models.value.find(item => item.modelId === advancedModel.value?.modelId) || null
 }
 
 async function testConnection(row) {
