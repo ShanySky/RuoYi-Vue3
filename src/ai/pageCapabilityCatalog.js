@@ -12,5 +12,6 @@ export const aiPageCapabilityCatalog = [
   ['/monitor/logininfor', '登录日志'],
   ['/monitor/operlog', '操作日志'],
   ['/monitor/cache', '缓存监控'],
+  ['/monitor/cacheList', '缓存列表'],
   ['/monitor/server', '服务监控']
 ].map(([route, pageName]) => ({ route, pageName }))
