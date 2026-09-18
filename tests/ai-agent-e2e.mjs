@@ -709,11 +709,12 @@ try {
   assert.equal(renamedRows.find(item => item.conversationId === secondConversationId)?.title, 'G_RENAMED_CONVERSATION')
   await page.keyboard.press('Escape').catch(() => {})
 
-  console.log('23. Active run is cancelled on logout; history survives re-login and optional auto-restore works')
+  console.log('23. Active run is cancelled on logout; history and account preferences survive re-login/new browser context')
   await apiJson(token, '/ai/preferences', 'PUT', {
     historyEntryVisible: true,
     autoRestoreLastConversation: true,
-    assistantOpenMode: 'floating'
+    assistantOpenMode: 'floating',
+    chatFontSize: 'xlarge'
   })
   await page.getByPlaceholder('告诉 AI 你想做什么…').fill('SLOW_STOP_TEST')
   await page.getByRole('button', { name: '发送', exact: true }).click()
@@ -737,6 +738,20 @@ try {
   await page.waitForTimeout(4500)
   assert.equal(await page.getByText('SLOW_STOP_DONE', { exact: true }).count(), 0, 'Logout must cancel the active run and discard its late response')
   await page.getByTestId('ai-assistant-history').waitFor()
+  assert.equal(await page.getByTestId('ai-assistant-input').evaluate(el => getComputedStyle(el).fontSize), '15px',
+    'Account font preference must survive logout and re-login')
+
+  const deviceContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const devicePage = await deviceContext.newPage()
+  await devicePage.goto(`${APP_URL}/login`, { waitUntil: 'networkidle' })
+  await devicePage.getByRole('button', { name: /登\s*录/ }).click()
+  await devicePage.waitForURL(url => !url.pathname.includes('/login'), { timeout: 30000 })
+  await devicePage.locator('.ai-fab').click()
+  await assistantPanel(devicePage)
+  assert.equal(await devicePage.getByTestId('ai-assistant-input').evaluate(el => getComputedStyle(el).fontSize), '15px',
+    'Account font preference must restore in a clean browser context without localStorage carry-over')
+  await deviceContext.close()
+  await apiJson(token, '/ai/preferences', 'PUT', { chatFontSize: 'standard' })
 
   console.log('24. Different tabs keep independent activeConversationId values')
   await apiJson(token, '/ai/preferences', 'PUT', { autoRestoreLastConversation: false })
@@ -802,11 +817,31 @@ try {
   const fallbackDetail = await apiJson(token, `/ai/chat/conversations/${fallbackConversationId}`)
   assert.equal(fallbackDetail.conversation.modelId, primaryModel.modelId)
   assert.equal(fallbackDetail.conversation.reasoningEffort, 'high')
+
+  const disabledPreference = await apiRaw(token, '/ai/preferences', 'PUT', {
+    defaultModelId: secondaryModel.modelId,
+    defaultReasoningEffort: 'low'
+  })
+  assert.notEqual(disabledPreference.payload.code, 200,
+    'A user must not persist a model that the administrator has disabled')
+
+  const invalidReasoningPreference = await apiRaw(token, '/ai/preferences', 'PUT', {
+    defaultModelId: primaryModel.modelId,
+    defaultReasoningEffort: 'definitely-unsupported'
+  })
+  assert.notEqual(invalidReasoningPreference.payload.code, 200,
+    'User reasoning preference must stay within the selected model supported efforts')
+
   await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/enabled`, 'PUT', { enabled: true })
   await apiJson(token, '/ai/preferences', 'PUT', {
     defaultModelId: primaryModel.modelId,
     defaultReasoningEffort: 'high'
   })
+  const preferredConversation = await apiJson(token, '/ai/chat/conversations', 'POST', { route: '/index' })
+  assert.equal(preferredConversation.modelId, primaryModel.modelId,
+    'Valid user default model must win when creating a new conversation without an explicit model')
+  assert.equal(preferredConversation.reasoningEffort, 'high',
+    'Valid user default reasoning must apply when creating a new conversation without an explicit effort')
 
   console.log('26. Database System Prompt is rendered into the real model request and version is auditable')
   const promptRows = await apiJson(token, '/ai/config/prompts')
