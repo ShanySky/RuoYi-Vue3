@@ -563,6 +563,42 @@ const menuAiCapabilities = createAiCrudPageCapabilities({
   },
   actions: [
     {
+      suffix: 'sort_submit',
+      permission: 'system:menu:edit',
+      label: '保存菜单显示排序',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                menuId: { type: 'integer' },
+                orderNum: { type: 'integer', minimum: 0 }
+              },
+              required: ['menuId', 'orderNum'],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ['items'],
+        additionalProperties: false
+      },
+      handler: async ({ items }) => {
+        const values = Array.isArray(items) ? items : []
+        if (!values.length) throw new Error('没有可保存的排序项')
+        const ids = values.map(item => Number(item.menuId))
+        const orderNums = values.map(item => Number(item.orderNum))
+        if (ids.some(id => !Number.isInteger(id) || id <= 0) || orderNums.some(value => !Number.isInteger(value) || value < 0)) {
+          throw new Error('排序参数无效')
+        }
+        await updateMenuSort({ menuIds: ids.join(','), orderNums: orderNums.join(',') })
+        await getList()
+        return { saved: true, items: values }
+      }
+    },
+    {
       suffix: 'delete',
       permission: 'system:menu:remove',
       label: '删除菜单',
