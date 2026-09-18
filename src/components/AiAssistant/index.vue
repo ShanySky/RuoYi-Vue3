@@ -386,6 +386,30 @@ async function cancelByClientKeyWithRetry(clientRunKey, reason) {
   throw lastError
 }
 
+function requestWriteConfirmation(call) {
+  cancelPendingConfirmation()
+  pendingConfirmation.value = {
+    callId: call.callId,
+    description: call.description || call.name,
+    riskLevel: call.riskLevel
+  }
+  return new Promise(resolve => {
+    pendingConfirmationResolve = resolve
+  })
+}
+
+function resolveWriteConfirmation(confirmed) {
+  const resolve = pendingConfirmationResolve
+  pendingConfirmationResolve = null
+  pendingConfirmation.value = null
+  if (resolve) resolve(!!confirmed)
+}
+
+function cancelPendingConfirmation() {
+  if (!pendingConfirmationResolve && !pendingConfirmation.value) return
+  resolveWriteConfirmation(false)
+}
+
 async function sendMessage() {
   const text = input.value.trim()
   if (!text) return
@@ -395,6 +419,7 @@ async function sendMessage() {
   }
 
   const steering = busy.value
+  if (steering) cancelPendingConfirmation()
   try {
     await ensureConversation()
   } catch (error) {
@@ -447,6 +472,7 @@ async function stopCurrentRun(reason = 'USER_STOP') {
   ++runGeneration
   stopping.value = true
   busy.value = false
+  cancelPendingConfirmation()
   resetEscArmed()
   activeAbortController?.abort()
   activeAbortController = null
@@ -512,11 +538,9 @@ async function driveTurn(extra, generation, signal) {
     let error = null
     try {
       if (call.riskLevel === 'WRITE' || call.riskLevel === 'DANGEROUS_WRITE') {
-        await ElMessageBox.confirm(
-          `AI 准备执行“${call.description || call.name}”。此操作会写入系统数据，是否继续？`,
-          'AI 操作确认',
-          { confirmButtonText: '确认执行', cancelButtonText: '取消', type: 'warning', closeOnClickModal: false }
-        )
+        const confirmed = await requestWriteConfirmation(call)
+        if (generation !== runGeneration) return
+        if (!confirmed) throw 'cancel'
       }
       if (generation !== runGeneration) return
       const args = call.arguments ? JSON.parse(call.arguments) : {}
@@ -630,6 +654,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown, true)
   resetEscArmed()
+  cancelPendingConfirmation()
   activeAbortController?.abort()
 })
 </script>
