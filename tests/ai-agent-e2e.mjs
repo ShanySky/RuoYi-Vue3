@@ -107,6 +107,7 @@ try {
   await quickDiscovered.getByText('已发现', { exact: true }).waitFor()
   assert.equal(await quickSettings.locator('.model-card').filter({ hasText: 'mock-agent-model' }).count(), 0,
     'Quick settings autocomplete should filter after test connection')
+  await page.getByTestId('ai-assistant-close').click()
 
   console.log('2. Configure real OpenAI-compatible path and sync multiple models')
   await page.goto(`${APP_URL}/system/aiConfig`, { waitUntil: 'networkidle' })
