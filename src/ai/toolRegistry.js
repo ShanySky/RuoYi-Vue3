@@ -139,6 +139,7 @@ export function getFrontendToolDefinitions() {
       description: tool.description || tool.name,
       inputSchema: tool.inputSchema || { type: 'object', properties: {}, additionalProperties: false }
     }))
+    .sort((a, b) => a.name.localeCompare(b.name))
   definitions.unshift(navigationDefinition())
   return definitions
 }
