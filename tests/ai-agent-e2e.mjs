@@ -37,6 +37,21 @@ async function getUser(token, userId) {
   return body.data
 }
 
+async function apiJson(token, path, method = 'GET', body = undefined) {
+  const response = await fetch(`${BACKEND_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  })
+  assert.equal(response.status, 200, `Unexpected HTTP status for ${path}`)
+  const payload = await response.json()
+  assert.equal(payload.code, 200, `Unexpected API code for ${path}: ${JSON.stringify(payload)}`)
+  return payload.data
+}
+
 async function screenshot(name) {
   await page.screenshot({ path: `test-results/${name}.png`, fullPage: true })
 }
@@ -117,6 +132,50 @@ try {
   await reasoningSelect.click()
   await page.locator('.el-select-dropdown:visible').getByText('High', { exact: true }).click()
   await page.getByText('默认思考档位已更新').waitFor({ timeout: 10000 })
+
+  console.log('3b. Verify pending Tool Result keeps its original model and reasoning')
+  const runtimeToken = await getToken()
+  const enabledModels = await apiJson(runtimeToken, '/ai/config/models/enabled')
+  const primaryModel = enabledModels.find(item => item.modelCode === 'mock-agent-model')
+  const secondaryModel = enabledModels.find(item => item.modelCode === 'mock-secondary-model')
+  assert.ok(primaryModel && secondaryModel, 'Expected both enabled models for runtime isolation test')
+
+  const frontendTools = [{
+    name: 'page_system_user_search',
+    description: '查询用户',
+    inputSchema: {
+      type: 'object',
+      properties: { userName: { type: 'string' } },
+      additionalProperties: false
+    }
+  }]
+  const isolationStart = await apiJson(runtimeToken, '/ai/chat/turn', 'POST', {
+    modelId: primaryModel.modelId,
+    reasoningEffort: 'high',
+    userMessage: 'RUNTIME_ISOLATION',
+    route: '/system/user',
+    pageContext: { pageName: '用户管理' },
+    frontendTools
+  })
+  assert.equal(isolationStart.type, 'TOOL_CALL')
+  assert.equal(isolationStart.toolCall?.name, 'page_system_user_search')
+
+  const isolationResume = await apiJson(runtimeToken, '/ai/chat/turn', 'POST', {
+    conversationId: isolationStart.conversationId,
+    modelId: secondaryModel.modelId,
+    reasoningEffort: 'low',
+    toolResult: {
+      callId: isolationStart.toolCall.callId,
+      success: true,
+      result: { total: 1, rows: [{ userId: 2, userName: 'ry', nickName: '若依' }] }
+    },
+    route: '/system/user',
+    pageContext: { pageName: '用户管理', total: 1 },
+    frontendTools
+  })
+  assert.equal(isolationResume.type, 'MESSAGE')
+  assert.equal(isolationResume.message, 'ISOLATION:mock-agent-model:high',
+    'Tool Result resume must ignore a new UI model/effort and keep pending-call model/effort')
 
   console.log('4. Verify non-modal floating window and quick settings')
   await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
