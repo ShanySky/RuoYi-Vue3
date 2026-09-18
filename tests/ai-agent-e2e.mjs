@@ -182,6 +182,35 @@ try {
   await page.locator('.el-select-dropdown:visible').getByText('高', { exact: true }).click()
   await page.getByText('默认思考档位已更新', { exact: true }).waitFor({ timeout: 10000 })
 
+  console.log('4a. Reasoning none/max are preserved end-to-end and unsupported minimal stays hidden')
+  const detectedModels = await apiJson(token, '/ai/config/models')
+  const detectedPrimary = detectedModels.find(item => item.modelCode === 'mock-agent-model')
+  assert.ok(detectedPrimary)
+  const detectedEfforts = String(detectedPrimary.reasoningEfforts || '').split(',').filter(Boolean)
+  assert.ok(detectedEfforts.includes('none'), 'none must be detected and persisted')
+  assert.ok(detectedEfforts.includes('max'), 'max must be detected and persisted')
+  assert.equal(detectedEfforts.includes('minimal'), false, 'unsupported minimal must not be persisted for the primary model')
+
+  const noneTurn = await apiJson(token, '/ai/chat/turn', 'POST', {
+    modelId: detectedPrimary.modelId,
+    reasoningEffort: 'none',
+    userMessage: 'REASONING_NONE_PROBE',
+    route: '/index',
+    pageContext: {},
+    frontendTools: []
+  })
+  assert.equal(noneTurn.message, 'AI_OK:mock-agent-model:none')
+
+  const maxTurn = await apiJson(token, '/ai/chat/turn', 'POST', {
+    modelId: detectedPrimary.modelId,
+    reasoningEffort: 'max',
+    userMessage: 'REASONING_MAX_PROBE',
+    route: '/index',
+    pageContext: {},
+    frontendTools: []
+  })
+  assert.equal(maxTurn.message, 'AI_OK:mock-agent-model:max')
+
   console.log('5. Single-model test connection uses a short toast and does not expand the row')
   const primaryHeightBefore = (await primaryRow.boundingBox()).height
   await primaryRow.getByRole('button', { name: '测试连接', exact: true }).click()
@@ -422,6 +451,24 @@ try {
   assert.equal(await page.getByRole('button', { name: '停止', exact: true }).count(), 1,
     'Double Escape outside the AI assistant must not stop the active run')
 
+  await page.evaluate(async () => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    const runtime = registry.getCurrentPageRuntime()
+    await registry.invokeFrontendTool('page_system_user_edit_open', { userId: 2 }, runtime)
+  })
+  const businessEditDialog = page.locator('.el-dialog:visible').filter({ hasText: '修改用户' }).first()
+  await businessEditDialog.waitFor({ timeout: 10000 })
+  const businessNicknameInput = businessEditDialog.getByPlaceholder('请输入用户昵称')
+  await businessNicknameInput.focus()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(850)
+  assert.equal(await page.getByRole('button', { name: '停止', exact: true }).count(), 1,
+    'Double Escape in a RuoYi business dialog must not stop the active AI run')
+  if (await businessEditDialog.count()) {
+    await page.keyboard.press('Escape').catch(() => {})
+  }
+
   await page.getByTestId('ai-model-picker-trigger').click()
   const openPicker = page.locator('.ai-model-picker-popper:visible')
   await openPicker.waitFor()
@@ -450,6 +497,30 @@ try {
   assert.equal(await page.getByText('STEER_OLD_DONE', { exact: true }).count(), 0,
     'Superseded run response must not be rendered after steering')
   await page.getByText(/旧规划将在安全边界停止/).waitFor()
+
+  console.log('17a. Multiple rapid steering messages are all persisted in order and only the newest run wins')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('STEER_OLD')
+  await page.getByRole('button', { name: '停止', exact: true }).waitFor({ timeout: 10000 })
+  await page.waitForTimeout(250)
+  const rapidSteeringInput = page.getByPlaceholder('告诉 AI 你想做什么…')
+  await rapidSteeringInput.fill('STEER_OLD_2')
+  await page.getByRole('button', { name: '发送补充', exact: true }).click()
+  await page.waitForTimeout(250)
+  await rapidSteeringInput.fill('STEER_NEW')
+  await page.getByRole('button', { name: '发送补充', exact: true }).click()
+  await page.getByText('STEER_NEW_OK', { exact: true }).last().waitFor({ timeout: 15000 })
+  await page.waitForTimeout(4500)
+  assert.equal(await page.getByText('STEER_OLD_DONE', { exact: true }).count(), 0)
+
+  const rapidConversationLabel = await page.locator('.context-label').innerText()
+  const rapidConversationId = Number(rapidConversationLabel.match(/#(\d+)/)?.[1])
+  assert.ok(rapidConversationId)
+  const rapidAudit = await apiJson(token, `/ai/admin/audit/${rapidConversationId}`)
+  const rapidUserMessages = (rapidAudit.messages || []).filter(item => item.role === 'USER').map(item => item.content)
+  assert.deepEqual(rapidUserMessages.slice(-3), ['STEER_OLD', 'STEER_OLD_2', 'STEER_NEW'])
+  assert.ok((rapidAudit.runs || []).filter(run => run.status === 'SUPERSEDED' && run.cancelReason === 'STEERING').length >= 2,
+    'Each newer steering message must supersede the immediately preceding active Run')
 
   console.log('18. Steering cancels a pending WRITE confirmation without persisting it')
   await page.getByTestId('ai-assistant-new-conversation').click()
