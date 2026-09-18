@@ -1,11 +1,19 @@
 <template>
   <div class="quick-settings">
-    <el-scrollbar v-if="initialized">
-      <div class="settings-section">
-        <div class="section-title">AI 服务</div>
-        <el-form label-position="top" size="small">
+    <el-scrollbar v-if="initialized" class="settings-scroll">
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
+            <div class="section-title">AI 服务连接</div>
+            <div class="section-subtitle">保存 Provider 连接信息，再选择真正需要使用的模型。</div>
+          </div>
+          <el-tag v-if="provider.enabled" size="small" type="success" effect="plain">已启用</el-tag>
+          <el-tag v-else size="small" type="info" effect="plain">未启用</el-tag>
+        </div>
+
+        <el-form label-position="top" size="small" class="compact-form">
           <el-form-item label="Base URL">
-            <el-input v-model="form.baseUrl" placeholder="https://api.example.com/v1" @input="clearDiscoveredModels" />
+            <el-input v-model="form.baseUrl" placeholder="https://api.example.com/v1" @input="clearRemoteCatalog" />
           </el-form-item>
           <el-form-item label="Token">
             <el-input
@@ -14,122 +22,184 @@
               show-password
               autocomplete="new-password"
               :placeholder="provider.hasToken ? '已保存 Token；留空不修改' : '请输入 API Token'"
-              @input="clearDiscoveredModels"
+              @input="clearRemoteCatalog"
             />
           </el-form-item>
           <div class="compact-row">
             <el-checkbox v-model="form.enabled">启用服务</el-checkbox>
-            <el-input-number v-model="form.timeoutSeconds" :min="3" :max="300" controls-position="right" size="small" />
           </div>
           <div class="button-row">
-            <el-button type="primary" size="small" :loading="saving" @click="saveProvider">保存</el-button>
-            <el-button size="small" :loading="testing" @click="testProvider">测试连接</el-button>
-            <el-button size="small" :loading="syncing" :disabled="!provider.providerId || providerDirty" @click="syncModels">同步模型</el-button>
+            <el-button type="primary" size="small" :loading="saving" @click="saveProvider">保存连接配置</el-button>
+            <el-button size="small" :loading="testingLoad" @click="testModelLoad">测试模型加载</el-button>
+            <el-button size="small" :disabled="!remoteModels.length" @click="pickerVisible = true">选择模型</el-button>
           </div>
         </el-form>
-      </div>
 
-      <el-divider />
+        <el-alert
+          v-if="loadMessage"
+          :title="loadMessage"
+          :type="loadStatus"
+          :closable="false"
+          show-icon
+          class="load-result"
+        />
+      </section>
 
-      <div class="settings-section">
-        <div class="section-title-row">
-          <div class="section-title">模型</div>
-          <el-button text size="small" @click="loadModels">刷新</el-button>
+      <div class="section-divider" />
+
+      <section class="settings-section">
+        <div class="section-heading models-heading">
+          <div>
+            <div class="section-title">系统模型</div>
+            <div class="section-subtitle">只显示已经加入系统的模型。</div>
+          </div>
+          <el-button text size="small" @click="openPicker">
+            <el-icon><Plus /></el-icon>
+            添加
+          </el-button>
         </div>
-        <el-input v-model="query" clearable size="small" placeholder="输入 gpt、5.6、sol 等实时匹配" />
-        <div class="list-hint">{{ query ? '实时匹配结果' : '默认 / 已启用 / 常用模型' }}</div>
 
-        <div class="model-list" v-loading="modelLoading">
-          <div v-for="model in filteredModels" :key="model.modelId" class="model-card">
-            <div class="model-top">
-              <div class="model-name" :title="model.modelCode">{{ model.displayName || model.modelCode }}</div>
-              <el-tag v-if="model.discoveredOnly" size="small" type="info">已发现</el-tag>
-              <el-switch
-                v-else
-                :model-value="model.enabled === '0'"
-                size="small"
-                @change="value => changeEnabled(model, value)"
-              />
+        <el-input
+          v-if="models.length > 5"
+          v-model="systemQuery"
+          clearable
+          :prefix-icon="Search"
+          size="small"
+          placeholder="搜索系统模型"
+          class="system-search"
+        />
+
+        <div v-if="filteredModels.length" class="system-model-list" v-loading="modelLoading">
+          <article v-for="model in filteredModels" :key="model.modelId" class="system-model-card">
+            <div class="model-card-top">
+              <div class="model-name-wrap">
+                <div class="model-name" :title="model.modelCode">{{ model.displayName || model.modelCode }}</div>
+                <div class="model-code">{{ model.modelCode }}</div>
+              </div>
+              <div class="model-state-actions">
+                <el-tooltip :content="model.defaultModel === '0' ? '当前默认模型' : '设为默认模型'" placement="top">
+                  <button class="default-star" type="button" @click="makeDefault(model)">
+                    <el-icon v-if="model.defaultModel === '0'" class="active"><StarFilled /></el-icon>
+                    <el-icon v-else><Star /></el-icon>
+                  </button>
+                </el-tooltip>
+                <el-switch
+                  :model-value="model.enabled === '0'"
+                  size="small"
+                  @change="value => changeEnabled(model, value)"
+                />
+              </div>
             </div>
-            <div v-if="model.discoveredOnly" class="model-actions">
-              <span class="discovered-tip">测试连接已发现，保存 Provider 后同步即可配置</span>
+
+            <div class="capability-row">
+              <span class="capability-label">Tool</span>
+              <span v-if="detecting[model.modelId]" class="inline-status">
+                <el-icon class="is-loading"><Loading /></el-icon> 检测中
+              </span>
+              <el-tag v-else-if="model.toolCapability === 'SUPPORTED'" size="small" type="success" effect="plain">支持</el-tag>
+              <el-tag v-else-if="model.toolCapability === 'UNSUPPORTED'" size="small" type="info" effect="plain">不支持</el-tag>
+              <el-button v-else link size="small" type="primary" @click="detectModel(model)">重新检测</el-button>
             </div>
-            <div v-else class="model-actions">
-              <el-tag v-if="model.defaultModel === '0'" size="small" type="success">默认模型</el-tag>
-              <el-button v-else link type="primary" size="small" @click="makeDefault(model)">设为默认</el-button>
-              <el-button link size="small" @click="testReasoning(model)">思考能力</el-button>
-            </div>
-            <div v-if="!model.discoveredOnly && model.reasoningCapability === 'SUPPORTED'" class="reasoning-row">
-              <span>默认档位</span>
+
+            <div class="capability-row">
+              <span class="capability-label">思考档位</span>
+              <span v-if="detecting[model.modelId]" class="inline-status">
+                <el-icon class="is-loading"><Loading /></el-icon> 检测中
+              </span>
               <el-select
+                v-else-if="model.reasoningCapability === 'SUPPORTED'"
                 :model-value="model.defaultReasoningEffort || ''"
                 size="small"
-                style="width: 150px"
+                class="reasoning-select"
                 @change="value => changeDefaultReasoning(model, value)"
               >
                 <el-option label="Provider 默认" value="" />
-                <el-option
-                  v-for="effort in reasoningOptions(model)"
-                  :key="effort"
-                  :label="effortLabel(effort)"
-                  :value="effort"
-                />
+                <el-option v-for="effort in reasoningOptions(model)" :key="effort" :label="effortLabel(effort)" :value="effort" />
               </el-select>
+              <el-tag v-else-if="model.reasoningCapability === 'UNSUPPORTED'" size="small" type="info" effect="plain">不支持</el-tag>
+              <el-button v-else link size="small" type="primary" @click="detectModel(model)">重新检测</el-button>
             </div>
-            <div v-else-if="!model.discoveredOnly" class="capability-note">
-              思考档位：{{ model.reasoningCapability === 'UNSUPPORTED' ? '不支持' : '未测试' }}
+
+            <div class="model-card-footer">
+              <el-button
+                link
+                type="primary"
+                size="small"
+                :loading="testingModel[model.modelId]"
+                @click="testConnection(model)"
+              >
+                测试连接
+              </el-button>
+              <el-button link type="danger" size="small" @click="removeModel(model)">移除</el-button>
             </div>
-          </div>
-          <div v-if="filteredModels.length === 0" class="empty-tip">没有匹配模型。请先测试连接或同步模型。</div>
+          </article>
         </div>
-      </div>
+
+        <div v-else class="empty-models">
+          <el-icon><Grid /></el-icon>
+          <span>暂未添加系统模型</span>
+          <el-button link type="primary" size="small" @click="openPicker">选择模型</el-button>
+        </div>
+      </section>
     </el-scrollbar>
-    <div v-else class="initial-loading">正在加载 AI 配置…</div>
+
+    <div v-else class="initial-loading">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      正在加载 AI 配置…
+    </div>
+
+    <ai-remote-model-picker
+      v-model="pickerVisible"
+      :remote-models="remoteModels"
+      :system-models="models"
+      :refreshing="testingLoad"
+      :adding="addingModels"
+      @refresh="testModelLoad"
+      @confirm="addSelectedModels"
+    />
   </div>
 </template>
 
 <script setup>
 import { refDebounced } from '@vueuse/core'
-import { ElMessage } from 'element-plus'
-import { filterAiModelsByQuery, getRecentAiModelIds, mergeDiscoveredAiModels, suggestAiModels } from '@/ai/modelSearch'
+import { Grid, Loading, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import AiRemoteModelPicker from '@/components/AiRemoteModelPicker/index.vue'
+import { filterAiModelsByQuery } from '@/ai/modelSearch'
 import {
-  getAiProvider, saveAiProvider, testAiProvider, syncAiModels, listAiModels,
-  setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning, testAiModelReasoning
+  addAiModels, detectAiModelCapabilities, getAiProvider, listAiModels, removeAiModel,
+  saveAiProvider, setAiModelEnabled, setDefaultAiModel, setDefaultAiReasoning,
+  testAiModelChat, testAiProvider
 } from '@/api/ai/config'
 
 const emit = defineEmits(['updated'])
 const provider = reactive({})
 const form = reactive({ name: '默认 AI 服务', baseUrl: '', token: '', enabled: false, timeoutSeconds: 30 })
 const models = ref([])
-const discoveredCodes = ref([])
-const query = ref('')
-const debouncedQuery = refDebounced(query, 180)
-const saving = ref(false)
-const testing = ref(false)
-const syncing = ref(false)
-const modelLoading = ref(false)
+const remoteModels = ref([])
+const pickerVisible = ref(false)
+const systemQuery = ref('')
+const debouncedSystemQuery = refDebounced(systemQuery, 180)
 const initialized = ref(false)
+const saving = ref(false)
+const testingLoad = ref(false)
+const addingModels = ref(false)
+const modelLoading = ref(false)
+const loadMessage = ref('')
+const loadStatus = ref('success')
+const detecting = reactive({})
+const testingModel = reactive({})
 
 const providerDirty = computed(() => {
   if (!provider.providerId) return true
   return form.baseUrl.trim() !== String(provider.baseUrl || '').trim()
     || !!form.token
     || form.enabled !== !!provider.enabled
-    || Number(form.timeoutSeconds || 30) !== Number(provider.timeoutSeconds || 30)
 })
 
-const searchableModels = computed(() => mergeDiscoveredAiModels(models.value, discoveredCodes.value))
-
-function modelLabel(model) {
-  return model?.displayName || model?.modelCode || ''
-}
-
 const filteredModels = computed(() => {
-  if (debouncedQuery.value.trim()) {
-    return filterAiModelsByQuery(searchableModels.value, debouncedQuery.value, 20)
-  }
-
-  return suggestAiModels(searchableModels.value, getRecentAiModelIds(), 8)
+  if (!debouncedSystemQuery.value.trim()) return models.value
+  return filterAiModelsByQuery(models.value, debouncedSystemQuery.value, 30)
 })
 
 function reasoningOptions(model) {
@@ -142,8 +212,9 @@ function effortLabel(value) {
   return labels[value] || value
 }
 
-function clearDiscoveredModels() {
-  discoveredCodes.value = []
+function clearRemoteCatalog() {
+  remoteModels.value = []
+  loadMessage.value = ''
 }
 
 async function loadProvider() {
@@ -153,7 +224,7 @@ async function loadProvider() {
   form.baseUrl = provider.baseUrl || ''
   form.token = ''
   form.enabled = !!provider.enabled
-  form.timeoutSeconds = provider.timeoutSeconds || 30
+  form.timeoutSeconds = 30
 }
 
 async function loadModels() {
@@ -182,41 +253,80 @@ async function saveProvider() {
   }
   saving.value = true
   try {
-    const res = await saveAiProvider({ ...form, token: form.token || undefined })
+    const res = await saveAiProvider({ ...form, token: form.token || undefined, timeoutSeconds: 30 })
     Object.assign(provider, res.data || {})
     form.token = ''
-    ElMessage.success('AI 服务配置已保存')
+    form.timeoutSeconds = 30
+    ElMessage.success({ message: '连接配置已保存', duration: 2200 })
     emit('updated')
   } finally {
     saving.value = false
   }
 }
 
-async function testProvider() {
+async function testModelLoad() {
   if (!form.baseUrl.trim()) {
     ElMessage.warning('请填写 Base URL')
     return
   }
-  testing.value = true
+  testingLoad.value = true
   try {
-    const res = await testAiProvider({ ...form, token: form.token || undefined })
-    discoveredCodes.value = Array.isArray(res.data) ? res.data : []
-    ElMessage.success(`连接成功，发现 ${discoveredCodes.value.length} 个模型；现在可以直接搜索`)
+    const res = await testAiProvider({ ...form, token: form.token || undefined, timeoutSeconds: 30 })
+    remoteModels.value = Array.isArray(res.data) ? res.data : []
+    loadStatus.value = 'success'
+    loadMessage.value = `模型加载成功：发现 ${remoteModels.value.length} 个远端模型`
+  } catch (error) {
+    remoteModels.value = []
+    loadStatus.value = 'error'
+    loadMessage.value = '模型加载失败，请检查 Base URL 和 Token'
+    throw error
   } finally {
-    testing.value = false
+    testingLoad.value = false
   }
 }
 
-async function syncModels() {
-  syncing.value = true
+async function openPicker() {
+  if (!remoteModels.value.length) await testModelLoad()
+  if (remoteModels.value.length) pickerVisible.value = true
+}
+
+async function addSelectedModels(codes) {
+  if (providerDirty.value) {
+    ElMessage.warning('连接配置已修改，请先保存连接配置，再添加模型')
+    return
+  }
+  addingModels.value = true
   try {
-    const res = await syncAiModels()
-    models.value = res.data || []
-    discoveredCodes.value = []
-    ElMessage.success(`已同步 ${models.value.length} 个模型`)
+    const res = await addAiModels(codes)
+    const added = res.data || []
+    pickerVisible.value = false
+    await loadModels()
+    emit('updated')
+    ElMessage.success({ message: `已添加 ${added.length} 个模型，正在自动检测能力`, duration: 2200 })
+    await Promise.allSettled(added.map(model => detectModel(model, false)))
+    await loadModels()
     emit('updated')
   } finally {
-    syncing.value = false
+    addingModels.value = false
+  }
+}
+
+async function detectModel(model, showMessage = true) {
+  detecting[model.modelId] = true
+  try {
+    const res = await detectAiModelCapabilities(model.modelId)
+    if (showMessage) {
+      const data = res.data || {}
+      const partial = data.toolError || data.reasoningError
+      ElMessage({
+        type: partial ? 'warning' : 'success',
+        message: partial ? '能力检测已完成，部分能力暂未确认' : '模型能力检测完成',
+        duration: 2400
+      })
+    }
+    await loadModels()
+  } finally {
+    detecting[model.modelId] = false
   }
 }
 
@@ -227,24 +337,40 @@ async function changeEnabled(model, enabled) {
 }
 
 async function makeDefault(model) {
+  if (model.defaultModel === '0') return
   await setDefaultAiModel(model.modelId)
   await loadModels()
-  ElMessage.success('默认模型已更新')
   emit('updated')
-}
-
-async function testReasoning(model) {
-  const res = await testAiModelReasoning(model.modelId)
-  await loadModels()
-  ElMessage.success(`已验证思考档位：${res.data || 'Provider 默认'}`)
-  emit('updated')
+  ElMessage.success({ message: `默认模型已设为 ${model.displayName || model.modelCode}`, duration: 2200 })
 }
 
 async function changeDefaultReasoning(model, value) {
   await setDefaultAiReasoning(model.modelId, value || null)
   await loadModels()
-  ElMessage.success('默认思考档位已更新')
   emit('updated')
+  ElMessage.success({ message: '默认思考档位已更新', duration: 2000 })
+}
+
+async function testConnection(model) {
+  testingModel[model.modelId] = true
+  try {
+    await testAiModelChat(model.modelId)
+    ElMessage.success({ message: `${model.displayName || model.modelCode} 测试连接成功`, duration: 2600 })
+  } finally {
+    testingModel[model.modelId] = false
+  }
+}
+
+async function removeModel(model) {
+  await ElMessageBox.confirm(
+    `确认从系统模型中移除“${model.displayName || model.modelCode}”吗？`,
+    '移除模型',
+    { confirmButtonText: '确认移除', cancelButtonText: '取消', type: 'warning' }
+  )
+  await removeAiModel(model.modelId)
+  await loadModels()
+  emit('updated')
+  ElMessage.success({ message: '模型已移除', duration: 2000 })
 }
 
 onMounted(reload)
@@ -253,20 +379,38 @@ defineExpose({ reload })
 
 <style scoped>
 .quick-settings { height: 100%; min-height: 0; }
-.initial-loading { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--el-text-color-secondary); font-size: 13px; }
-.settings-section { padding: 2px 4px 8px; }
-.section-title { font-weight: 600; font-size: 14px; }
-.section-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.compact-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings-scroll { height: 100%; }
+.settings-section { padding: 4px 4px 10px; }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.section-title { color: var(--el-text-color-primary); font-size: 14px; font-weight: 600; }
+.section-subtitle { margin-top: 3px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.55; }
+.compact-form :deep(.el-form-item) { margin-bottom: 12px; }
+.compact-form :deep(.el-form-item__label) { padding-bottom: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
+.compact-row { display: flex; align-items: center; min-height: 28px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.list-hint { margin: 8px 2px 5px; color: var(--el-text-color-secondary); font-size: 12px; }
-.model-list { min-height: 80px; }
-.model-card { padding: 9px 8px; border-bottom: 1px solid var(--el-border-color-lighter); }
-.model-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.model-actions { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
-.discovered-tip { color: var(--el-text-color-secondary); font-size: 11px; }
-.reasoning-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--el-text-color-secondary); }
-.capability-note, .empty-tip { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; }
-.empty-tip { padding: 18px 6px; text-align: center; line-height: 1.6; }
+.load-result { margin-top: 12px; }
+.section-divider { height: 1px; margin: 4px 0 14px; background: var(--el-border-color-lighter); }
+.models-heading { align-items: center; }
+.system-search { margin-bottom: 9px; }
+.system-model-list { display: flex; flex-direction: column; gap: 8px; }
+.system-model-card {
+  padding: 10px 11px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px;
+  background: var(--el-bg-color); transition: border-color .15s ease, box-shadow .15s ease;
+}
+.system-model-card:hover { border-color: var(--el-border-color); box-shadow: 0 2px 7px rgba(0,0,0,.035); }
+.model-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.model-name-wrap { min-width: 0; }
+.model-name { overflow: hidden; color: var(--el-text-color-primary); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.model-code { overflow: hidden; margin-top: 2px; color: var(--el-text-color-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.model-state-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.default-star { display: flex; border: 0; background: transparent; color: var(--el-text-color-placeholder); cursor: pointer; font-size: 17px; padding: 2px; }
+.default-star:hover { color: var(--el-color-warning); }
+.default-star .active { color: var(--el-color-warning); }
+.capability-row { display: flex; align-items: center; min-height: 30px; margin-top: 4px; gap: 8px; }
+.capability-label { width: 64px; flex: 0 0 64px; color: var(--el-text-color-secondary); font-size: 11px; }
+.inline-status { display: inline-flex; align-items: center; gap: 4px; color: var(--el-text-color-secondary); font-size: 11px; }
+.reasoning-select { width: 142px; }
+.model-card-footer { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; padding-top: 5px; border-top: 1px solid var(--el-border-color-lighter); }
+.empty-models { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 90px; color: var(--el-text-color-secondary); font-size: 12px; }
+.initial-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--el-text-color-secondary); font-size: 13px; }
 </style>
