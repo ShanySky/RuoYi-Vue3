@@ -330,7 +330,8 @@ try {
   console.log('13. Run real user-page Tool loop with WRITE confirmation')
   await page.getByTestId('ai-assistant-new-conversation').click()
   await sendByButton(`请查找用户 ry，打开这个用户，把昵称改成 ${TEST_NICKNAME}，然后保存。`)
-  await page.getByText('AI 操作确认').waitFor({ timeout: 60000 })
+  const writeConfirmation = page.getByTestId('ai-write-confirmation')
+  await writeConfirmation.waitFor({ timeout: 60000 })
 
   const nicknameInput = page.getByPlaceholder('请输入用户昵称')
   await nicknameInput.waitFor({ timeout: 15000 })
@@ -339,7 +340,7 @@ try {
   const before = await getUser(token, 2)
   assert.equal(before.nickName, '若依', 'WRITE occurred before user confirmation')
 
-  await page.getByRole('button', { name: '确认执行' }).click()
+  await writeConfirmation.getByRole('button', { name: '确认执行', exact: true }).click()
   await page.locator('[data-testid="ai-assistant-messages"]').getByText('E2E_DONE', { exact: true })
     .waitFor({ timeout: 60000 })
 
@@ -385,6 +386,15 @@ try {
   await sendByButton('SLOW_ESC_TEST')
   await page.getByRole('button', { name: '停止', exact: true }).waitFor({ timeout: 10000 })
   await page.waitForTimeout(350)
+
+  const businessUserNameInput = page.getByPlaceholder('请输入用户名称')
+  await businessUserNameInput.focus()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(850)
+  assert.equal(await page.getByRole('button', { name: '停止', exact: true }).count(), 1,
+    'Double Escape outside the AI assistant must not stop the active run')
+
   await page.getByTestId('ai-model-picker-trigger').click()
   const openPicker = page.locator('.ai-model-picker-popper:visible')
   await openPicker.waitFor()
@@ -413,6 +423,24 @@ try {
   assert.equal(await page.getByText('STEER_OLD_DONE', { exact: true }).count(), 0,
     'Superseded run response must not be rendered after steering')
   await page.getByText(/旧规划将在安全边界停止/).waitFor()
+
+  console.log('18. Steering cancels a pending WRITE confirmation without persisting it')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('STEER_WRITE_OLD')
+  const pendingWrite = page.getByTestId('ai-write-confirmation')
+  await pendingWrite.waitFor({ timeout: 60000 })
+  await nicknameInput.waitFor({ timeout: 15000 })
+  assert.equal(await nicknameInput.inputValue(), 'SHOULD_NOT_SAVE')
+  const beforeSteerWrite = await getUser(token, 2)
+  assert.equal(beforeSteerWrite.nickName, TEST_NICKNAME)
+
+  const steeringWriteInput = page.getByPlaceholder('告诉 AI 你想做什么…')
+  await steeringWriteInput.fill('STEER_CANCEL_WRITE')
+  await page.getByRole('button', { name: '发送补充', exact: true }).click()
+  await pendingWrite.waitFor({ state: 'hidden', timeout: 10000 })
+  await page.getByText('WRITE_CANCELLED_BY_STEERING', { exact: true }).waitFor({ timeout: 15000 })
+  const afterSteerWrite = await getUser(token, 2)
+  assert.equal(afterSteerWrite.nickName, TEST_NICKNAME, 'Pending WRITE was persisted after steering')
 
   await screenshot('ai-agent-model-selection-e2e-success')
   console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
