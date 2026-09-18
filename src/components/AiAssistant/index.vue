@@ -510,10 +510,14 @@ function newConversation() {
 }
 
 async function setSendShortcut(value) {
+  const previous = aiStore.preferences.sendShortcut
+  aiStore.preferences.sendShortcut = value
   localStorage.setItem('ai-send-shortcut', value)
   try {
     await aiStore.savePreferences({ sendShortcut: value })
   } catch (error) {
+    aiStore.preferences.sendShortcut = previous
+    localStorage.setItem('ai-send-shortcut', previous || 'enter')
     ElMessage.error(error?.message || '发送快捷键保存失败')
   }
 }
