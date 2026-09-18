@@ -134,12 +134,20 @@ function chooseEffort(effort) {
   advancedModel.value = null
 }
 
+function closeIfOpen() {
+  if (!visible.value) return false
+  visible.value = false
+  return true
+}
+
 watch(visible, value => {
   if (!value) {
     query.value = ''
     advancedModel.value = null
   }
 })
+
+defineExpose({ closeIfOpen })
 </script>
 
 <style scoped>
