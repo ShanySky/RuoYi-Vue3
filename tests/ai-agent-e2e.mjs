@@ -426,6 +426,37 @@ try {
   await page.locator('.quick-settings').getByRole('button', { name: '标准', exact: true }).click()
   await page.getByTestId('ai-assistant-settings').click()
 
+  console.log('14a. Automatic compaction shows a lightweight status and continues without a modal')
+  await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/runtime-settings`, 'PUT', {
+    contextWindowTokens: 8192,
+    autoCompaction: true,
+    compactionThresholdPercent: 50
+  })
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  const compactionComposer = page.getByPlaceholder('告诉 AI 你想做什么…')
+  await compactionComposer.fill('UI_COMPACT_ONE ' + 'u'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).last().waitFor({ timeout: 30000 })
+
+  await compactionComposer.fill('UI_COMPACT_TWO ' + 'v'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('正在整理较早的会话上下文…', { exact: true }).waitFor({ timeout: 15000 })
+  assert.equal(await page.locator('.el-message-box:visible').count(), 0,
+    'Automatic compaction must not interrupt the user with a modal confirmation')
+  await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).last().waitFor({ timeout: 30000 })
+  const uiCompactionLabel = await page.locator('.context-label').innerText()
+  const uiCompactionConversationId = Number(uiCompactionLabel.match(/#(\d+)/)?.[1])
+  const uiCompactionAudit = await apiJson(token, `/ai/admin/audit/${uiCompactionConversationId}`)
+  assert.ok((uiCompactionAudit.checkpoints || []).some(cp => String(cp.summary || '').includes('DEFAULT_COMPACTION_APPLIED')),
+    'UI compaction must create a real persisted Checkpoint before continuing')
+  assert.ok((uiCompactionAudit.runs || []).some(run => run.status === 'COMPLETED'),
+    'The compaction-triggering Run must continue to completion automatically')
+  await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/runtime-settings`, 'PUT', {
+    contextWindowTokens: 65536,
+    autoCompaction: true,
+    compactionThresholdPercent: 75
+  })
+
   console.log('15. Stop cancels a slow run and discards late response')
   await page.getByTestId('ai-assistant-new-conversation').click()
   await sendByButton('SLOW_STOP_TEST')
