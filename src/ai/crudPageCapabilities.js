@@ -75,16 +75,18 @@ export function createAiCrudPageCapabilities(options) {
     }
 
     if (form.openEdit) {
+      const recordIdKey = form.recordIdKey || 'recordId'
       tools.push({
         name: `${prefix}_edit_open`,
         requiredPermission: form.editPermission,
         description: `打开${options.pageName || '当前页面'}指定记录的编辑表单`,
         inputSchema: objectSchema({
-          recordId: { type: 'integer', description: form.recordIdLabel || '记录ID' }
-        }, ['recordId']),
+          [recordIdKey]: { type: 'integer', description: form.recordIdLabel || '记录ID' }
+        }, [recordIdKey]),
         handler: async args => {
-          const data = await form.openEdit(args.recordId)
-          return { opened: true, mode: 'edit', recordId: args.recordId, data: data || form.snapshot?.() || {} }
+          const recordId = args[recordIdKey]
+          const data = await form.openEdit(recordId)
+          return { opened: true, mode: 'edit', recordId, data: data || form.snapshot?.() || {} }
         }
       })
     }
