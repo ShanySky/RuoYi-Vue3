@@ -142,6 +142,7 @@ import JobDetail from './detail'
 import { getJob } from "@/api/monitor/job"
 import { listJobLog, delJobLog, cleanJobLog } from "@/api/monitor/jobLog"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { useAiPageTools } from "@/ai/toolRegistry"
 
 const { proxy } = getCurrentInstance()
 const { sys_common_status, sys_job_group } = useDict("sys_common_status", "sys_job_group")
