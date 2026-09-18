@@ -150,6 +150,7 @@ import { listTable, previewTable, delTable, genCode, synchDb } from "@/api/tool/
 import router from "@/router"
 import importTable from "./importTable"
 import createTable from "./createTable"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
@@ -199,7 +200,7 @@ onActivated(() => {
 /** 查询表集合 */
 function getList() {
   loading.value = true
-  listTable(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
+  return listTable(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
     tableList.value = response.rows
     total.value = response.total
     loading.value = false
@@ -304,6 +305,137 @@ function handleDelete(row) {
     proxy.$modal.msgSuccess("删除成功")
   }).catch(() => {})
 }
+
+function findGenTable(tableId) {
+  const row = tableList.value.find(item => Number(item.tableId) === Number(tableId))
+  if (!row) throw new Error('当前列表中未找到指定生成表，请先查询')
+  return row
+}
+
+const genAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '代码生成',
+  toolPrefix: 'page_tool_gen',
+  queryFields: [
+    { key: 'tableName', label: '表名称' },
+    { key: 'tableComment', label: '表描述' },
+    { key: 'dateRange', label: '创建时间范围', type: 'array', itemType: 'string' },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' },
+    { key: 'orderByColumn', label: '排序字段', options: ['createTime', 'updateTime'] },
+    { key: 'isAsc', label: '排序方向', options: ['ascending', 'descending'] }
+  ],
+  query: {
+    permission: 'tool:gen:list',
+    apply: async args => {
+      for (const key of ['tableName', 'tableComment', 'pageNum', 'pageSize', 'orderByColumn', 'isAsc']) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      }
+      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+      queryParams.value.pageNum = Number(queryParams.value.pageNum || 1)
+    },
+    run: getList,
+    reset: async () => {
+      Object.assign(queryParams.value, {
+        pageNum: 1,
+        pageSize: 10,
+        tableName: undefined,
+        tableComment: undefined,
+        orderByColumn: defaultSort.value.prop,
+        isAsc: defaultSort.value.order
+      })
+      dateRange.value = []
+      return getList()
+    },
+    result: () => ({ total: total.value, rows: tableList.value.map(item => ({ ...item })) })
+  },
+  actions: [
+    {
+      suffix: 'preview',
+      permission: 'tool:gen:preview',
+      label: '预览生成代码',
+      inputSchema: { type: 'object', properties: { tableId: { type: 'integer' } }, required: ['tableId'], additionalProperties: false },
+      handler: async ({ tableId }) => {
+        findGenTable(tableId)
+        const response = await previewTable(tableId)
+        preview.value.data = response.data || {}
+        preview.value.open = true
+        preview.value.activeName = "domain.java"
+        return { opened: true, tableId, files: Object.keys(preview.value.data || {}) }
+      }
+    },
+    {
+      suffix: 'delete',
+      permission: 'tool:gen:remove',
+      label: '删除代码生成配置',
+      inputSchema: { type: 'object', properties: { tableIds: { type: 'array', items: { type: 'integer' } } }, required: ['tableIds'], additionalProperties: false },
+      handler: async ({ tableIds }) => {
+        const values = Array.isArray(tableIds) ? [...new Set(tableIds.filter(Boolean))] : []
+        if (!values.length) throw new Error('没有可删除的生成表ID')
+        await delTable(values.join(','))
+        await getList()
+        return { deletedTableIds: values }
+      }
+    },
+    {
+      suffix: 'sync_db',
+      permission: 'tool:gen:edit',
+      label: '同步数据库表结构',
+      inputSchema: { type: 'object', properties: { tableId: { type: 'integer' } }, required: ['tableId'], additionalProperties: false },
+      handler: async ({ tableId }) => {
+        const row = findGenTable(tableId)
+        await synchDb(row.tableName)
+        await getList()
+        return { tableId, tableName: row.tableName, synchronized: true }
+      }
+    },
+    {
+      suffix: 'generate',
+      permission: 'tool:gen:code',
+      label: '生成代码',
+      inputSchema: { type: 'object', properties: { tableId: { type: 'integer' } }, required: ['tableId'], additionalProperties: false },
+      handler: async ({ tableId }) => {
+        const row = findGenTable(tableId)
+        if (row.genType === '1') {
+          await genCode(row.tableName)
+          return { tableId, tableName: row.tableName, generated: true, mode: 'customPath', genPath: row.genPath }
+        }
+        proxy.$download.zip('/tool/gen/batchGenCode?tables=' + row.tableName, row.tableName + '.zip')
+        return { tableId, tableName: row.tableName, generated: true, mode: 'download' }
+      }
+    },
+    {
+      suffix: 'import_open',
+      permission: 'tool:gen:import',
+      label: '打开数据库表导入窗口',
+      handler: async () => {
+        openImportTable()
+        return { opened: true, note: '导入窗口已打开；数据库表选择仍由受控导入界面完成' }
+      }
+    }
+  ],
+  getRows: () => tableList.value.map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value },
+    dateRange: [...dateRange.value],
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+    selectedTableIds: [...ids.value],
+    selectedTableNames: [...tableNames.value],
+    preview: preview.value.open ? { open: true, files: Object.keys(preview.value.data || {}) } : { open: false },
+    navigationHints: {
+      editTable: '/tool/gen-edit/index/{tableId}'
+    },
+    excludedActions: [
+      { action: 'createTable', reason: '原页面仅以 admin 角色控制，没有独立 permission key；第三阶段不伪造权限标识' }
+    ]
+  })
+})
+
+useAiPageTools('tool.gen', genAiCapabilities.tools, genAiCapabilities.getContext, {
+  route: '/tool/gen',
+  pageName: '代码生成'
+})
 
 getList()
 </script>
