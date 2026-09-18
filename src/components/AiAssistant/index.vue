@@ -594,11 +594,11 @@ function startResize(event) {
 
 watch([mode, dockWidth], emitDockState, { immediate: true })
 onMounted(async () => {
-  window.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('keydown', handleGlobalKeydown, true)
   await Promise.all([loadModels(), aiStore.loadPreferences()])
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('keydown', handleGlobalKeydown, true)
   resetEscArmed()
   activeAbortController?.abort()
 })
