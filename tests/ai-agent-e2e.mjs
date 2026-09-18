@@ -75,7 +75,7 @@ async function sendByButton(text) {
 async function selectRemoteModel(dialog, name) {
   const row = dialog.locator('.remote-model-row').filter({ hasText: name }).first()
   await row.waitFor({ timeout: 10000 })
-  await row.getByRole('checkbox').check()
+  await row.locator('.el-checkbox').first().click()
 }
 
 try {
