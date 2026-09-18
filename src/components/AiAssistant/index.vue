@@ -142,6 +142,7 @@
             <div class="composer-footer">
               <div class="composer-left">
                 <ai-model-picker
+                  ref="modelPickerRef"
                   data-testid="ai-assistant-model"
                   v-model="modelId"
                   v-model:reasoning-effort="reasoningEffort"
@@ -225,6 +226,7 @@ const busy = ref(false)
 const stopping = ref(false)
 const escArmed = ref(false)
 const panelRef = ref(null)
+const modelPickerRef = ref(null)
 const workingText = ref('AI 正在处理…')
 const input = ref('')
 const models = ref([])
@@ -545,11 +547,28 @@ function resetEscArmed() {
   }
 }
 
+function isAiFocusActive() {
+  const active = document.activeElement
+  if (panelRef.value?.contains(active)) return true
+  if (!(active instanceof Element)) return false
+  return !!active.closest('.ai-model-picker-popper, .ai-remote-model-dialog, .el-message-box, .el-select-dropdown')
+}
+
 function handleGlobalKeydown(event) {
   if (event.key !== 'Escape' || event.isComposing || !busy.value || !aiStore.preferences.doubleEscEnabled) return
-  if (!panelRef.value?.contains(document.activeElement)) return
+  if (!isAiFocusActive()) return
 
-  // The first Escape used to close an AI popover/menu is never counted as a stop gesture.
+  // A manually-controlled model popover does not close itself on Escape, so close it explicitly.
+  // This Escape is intentionally not counted as the first stop gesture.
+  if (modelPickerRef.value?.closeIfOpen?.()) {
+    event.preventDefault()
+    event.stopPropagation()
+    resetEscArmed()
+    return
+  }
+
+  // Other Element Plus overlays may close themselves later in the same Escape event.
+  // Clear the stop sequence and let the event continue to the owning overlay.
   if (hasVisibleAiOverlay()) {
     resetEscArmed()
     return
