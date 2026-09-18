@@ -338,9 +338,18 @@ function append(role, text) {
   })
 }
 
+function showModelFallbackNotice() {
+  const notice = aiStore.consumeModelFallbackNotice()
+  if (!notice) return
+  ElMessage.warning(notice.source === 'conversation'
+    ? '该会话原模型当前不可用，已切换为系统默认模型'
+    : '你的默认模型当前不可用，已切换为系统默认模型')
+}
+
 async function loadModels() {
   try {
     await aiStore.loadModels()
+    showModelFallbackNotice()
   } catch {
     aiStore.models = []
     aiStore.modelId = undefined
@@ -868,6 +877,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown, true)
   const hadSessionConversation = !!aiStore.conversationId
   await aiStore.initialize()
+  showModelFallbackNotice()
   if (!hadSessionConversation && !aiStore.conversationId && aiStore.preferences.autoRestoreLastConversation) {
     await restoreLastConversation({ silent: true })
   }
