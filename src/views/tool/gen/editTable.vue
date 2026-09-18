@@ -128,6 +128,7 @@ import basicInfoForm from "./basicInfoForm"
 import genInfoForm from "./genInfoForm"
 import Sortable from 'sortablejs'
 import { createAiCrudPageCapabilities } from '@/ai/crudPageCapabilities'
+import { useAiPageTools } from '@/ai/toolRegistry'
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
