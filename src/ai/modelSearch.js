@@ -20,3 +20,39 @@ export function filterAiModelsByQuery(models, query, limit = 20) {
     .slice(0, limit)
     .map(item => item.model)
 }
+
+export function getRecentAiModelIds() {
+  try {
+    const value = JSON.parse(localStorage.getItem('ai-recent-models') || '[]')
+    return Array.isArray(value) ? value : []
+  } catch {
+    return []
+  }
+}
+
+export function rememberAiModel(modelId) {
+  if (modelId == null) return
+  const next = [modelId, ...getRecentAiModelIds().filter(id => id !== modelId)].slice(0, 5)
+  localStorage.setItem('ai-recent-models', JSON.stringify(next))
+}
+
+export function suggestAiModels(models, preferredIds = [], limit = 8) {
+  const list = [...(models || [])]
+  const result = []
+  const seen = new Set()
+
+  const add = model => {
+    if (!model || seen.has(model.modelId) || result.length >= limit) return
+    seen.add(model.modelId)
+    result.push(model)
+  }
+
+  list.filter(model => model.defaultModel === '0').forEach(add)
+  for (const id of preferredIds || []) add(list.find(model => model.modelId === id))
+  list.filter(model => model.enabled === '0').forEach(add)
+
+  // First-time sync may leave every model disabled. Show only a small sample rather
+  // than an empty list or the complete catalog.
+  list.forEach(add)
+  return result.slice(0, limit)
+}
