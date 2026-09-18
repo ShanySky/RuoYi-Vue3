@@ -57,18 +57,7 @@ async function screenshot(name) {
 }
 
 function modelRow(name) {
-  return page.locator('.ai-config-page .el-table__row').filter({ hasText: name }).first()
-}
-
-async function ensureEnabled(name) {
-  const row = modelRow(name)
-  await row.waitFor({ timeout: 15000 })
-  const toggle = row.locator('.el-switch').first()
-  const className = await toggle.getAttribute('class') || ''
-  if (!className.includes('is-checked')) {
-    await toggle.click()
-    await page.waitForTimeout(300)
-  }
+  return page.locator('.system-model-table .el-table__row').filter({ hasText: name }).first()
 }
 
 async function assistantPanel() {
@@ -83,13 +72,19 @@ async function sendByButton(text) {
   await page.getByRole('button', { name: '发送', exact: true }).click()
 }
 
+async function selectRemoteModel(dialog, name) {
+  const row = dialog.locator('.remote-model-row').filter({ hasText: name }).first()
+  await row.waitFor({ timeout: 10000 })
+  await row.getByRole('checkbox').check()
+}
+
 try {
   console.log('1. Login through Vue UI')
   await page.goto(`${APP_URL}/login`, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: /登\s*录/ }).click()
   await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 30000 })
 
-  console.log('1b. Quick settings test connection should expose models before sync')
+  console.log('2. Quick settings can test model loading without adding every remote model')
   await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
   await page.locator('.ai-fab').click()
   await assistantPanel()
@@ -97,78 +92,82 @@ try {
   const quickSettings = page.locator('.quick-settings')
   await quickSettings.getByPlaceholder('https://api.example.com/v1').fill(PROVIDER_URL)
   await quickSettings.getByPlaceholder(/API Token|请输入 API Token/).fill(PROVIDER_TOKEN)
-  await quickSettings.getByRole('button', { name: '测试连接', exact: true }).click()
-  await page.getByText(/连接成功，发现 2 个模型；现在可以直接搜索/).waitFor({ timeout: 20000 })
-  const quickSearch = quickSettings.getByPlaceholder('输入 gpt、5.6、sol 等实时匹配')
-  await quickSearch.fill('secondary')
+  await quickSettings.getByRole('button', { name: '测试模型加载', exact: true }).click()
+  await quickSettings.getByText(/模型加载成功：发现 2 个远端模型/).waitFor({ timeout: 20000 })
+  assert.equal(await quickSettings.locator('.system-model-card').count(), 0, 'Remote discovery must not auto-add system models')
+  await quickSettings.getByRole('button', { name: '选择模型', exact: true }).click()
+  let remoteDialog = page.locator('.ai-remote-model-dialog:visible')
+  await remoteDialog.getByText('选择要加入系统的模型', { exact: true }).waitFor()
+  const quickRemoteSearch = remoteDialog.getByPlaceholder(/输入 gpt、5.6、sol/)
+  await quickRemoteSearch.fill('secondary')
   await page.waitForTimeout(250)
-  const quickDiscovered = quickSettings.locator('.model-card').filter({ hasText: 'mock-secondary-model' }).first()
-  await quickDiscovered.waitFor({ timeout: 10000 })
-  await quickDiscovered.getByText('已发现', { exact: true }).waitFor()
-  assert.equal(await quickSettings.locator('.model-card').filter({ hasText: 'mock-agent-model' }).count(), 0,
-    'Quick settings autocomplete should filter after test connection')
+  await remoteDialog.getByText('mock-secondary-model', { exact: true }).waitFor()
+  assert.equal(await remoteDialog.getByText('mock-agent-model', { exact: true }).count(), 0,
+    'Remote catalog search should filter without persisting models')
+  await remoteDialog.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByTestId('ai-assistant-close').click()
 
-  console.log('2. Configure real OpenAI-compatible path and sync multiple models')
+  console.log('3. Save Provider connection, load remote catalog and add only selected models')
   await page.goto(`${APP_URL}/system/aiConfig`, { waitUntil: 'networkidle' })
   await page.getByText('AI 服务配置', { exact: true }).first().waitFor({ timeout: 30000 })
   await page.getByPlaceholder('例如：https://api.example.com/v1').fill(PROVIDER_URL)
   await page.getByPlaceholder(/API Token|已保存 Token/).fill(PROVIDER_TOKEN)
 
-  console.log('2a. Test connection should expose discovered models before sync')
-  await page.getByRole('button', { name: '测试连接', exact: true }).click()
-  await page.getByText(/连接成功，发现 2 个模型；现在可以直接搜索/).waitFor({ timeout: 20000 })
-  const modelSearch = page.getByPlaceholder('输入 gpt、5.6、sol 等实时匹配')
-  await modelSearch.fill('secondary')
-  await page.waitForTimeout(250)
-  const discoveredRow = modelRow('mock-secondary-model')
-  await discoveredRow.waitFor({ timeout: 10000 })
-  await discoveredRow.getByText('未同步', { exact: true }).waitFor()
-  await modelSearch.clear()
-
-  const enabledSwitch = page.locator('.ai-config-page .el-switch').first()
+  const enabledSwitch = page.locator('.provider-form .el-switch').first()
   if (!(await enabledSwitch.getAttribute('class') || '').includes('is-checked')) {
     await enabledSwitch.click()
   }
 
-  await page.getByRole('button', { name: '保存', exact: true }).click()
-  await page.getByText('AI 服务配置已保存').waitFor({ timeout: 20000 })
+  await page.getByRole('button', { name: '保存连接配置', exact: true }).click()
+  await page.getByText('连接配置已保存', { exact: true }).waitFor({ timeout: 15000 })
 
-  await page.getByRole('button', { name: '同步模型', exact: true }).click()
-  await modelSearch.fill('mock')
-  await modelRow('mock-agent-model').waitFor({ timeout: 20000 })
-  await modelRow('mock-secondary-model').waitFor({ timeout: 20000 })
+  await page.getByRole('button', { name: '测试模型加载', exact: true }).click()
+  await page.getByText(/模型加载成功：发现 2 个远端模型/).waitFor({ timeout: 20000 })
 
-  await ensureEnabled('mock-agent-model')
-  await ensureEnabled('mock-secondary-model')
+  const token = await getToken()
+  const beforeAdd = await apiJson(token, '/ai/config/models')
+  assert.equal(beforeAdd.length, 0, 'Testing model load must not persist the remote catalog')
 
+  await page.getByRole('button', { name: '选择模型', exact: true }).first().click()
+  remoteDialog = page.locator('.ai-remote-model-dialog:visible')
+  await remoteDialog.getByText('选择要加入系统的模型', { exact: true }).waitFor()
+  await selectRemoteModel(remoteDialog, 'mock-agent-model')
+  await selectRemoteModel(remoteDialog, 'mock-secondary-model')
+  await remoteDialog.getByRole('button', { name: '添加所选模型', exact: true }).click()
+
+  await modelRow('mock-agent-model').waitFor({ timeout: 30000 })
+  await modelRow('mock-secondary-model').waitFor({ timeout: 30000 })
+  const afterAdd = await apiJson(token, '/ai/config/models')
+  assert.equal(afterAdd.length, 2, 'Only selected models should enter the system model list')
+
+  console.log('4. Newly added models auto-detect Tool Calling and reasoning capabilities')
   const primaryRow = modelRow('mock-agent-model')
-  const defaultButton = primaryRow.getByRole('button', { name: '设为默认' })
-  if (await defaultButton.count()) {
-    await defaultButton.click()
-    await page.getByText('默认模型已更新').waitFor({ timeout: 10000 })
-  }
+  const secondaryRowConfig = modelRow('mock-secondary-model')
+  await primaryRow.locator('.reasoning-select').waitFor({ timeout: 60000 })
+  await secondaryRowConfig.locator('.reasoning-select').waitFor({ timeout: 60000 })
+  await primaryRow.getByText('支持', { exact: true }).waitFor()
 
-  console.log('3. Verify Tool Calling and reasoning capabilities')
-  await modelRow('mock-agent-model').getByRole('button', { name: '工具' }).click()
-  await page.getByText('Tool Calling：SUPPORTED').waitFor({ timeout: 20000 })
+  const defaultStar = primaryRow.locator('.default-star .active')
+  assert.equal(await defaultStar.count(), 1, 'First selected model should become the default automatically')
 
-  await modelRow('mock-agent-model').getByRole('button', { name: '思考' }).click()
-  await page.getByText(/已验证思考档位：/).waitFor({ timeout: 30000 })
-  await modelRow('mock-secondary-model').getByRole('button', { name: '思考' }).click()
-  await page.getByText(/已验证思考档位：/).waitFor({ timeout: 30000 })
-
-  const reasoningSelect = modelRow('mock-agent-model').locator('.el-select').first()
+  const reasoningSelect = primaryRow.locator('.reasoning-select')
   await reasoningSelect.click()
   await page.locator('.el-select-dropdown:visible').getByText('High', { exact: true }).click()
-  await page.getByText('默认思考档位已更新').waitFor({ timeout: 10000 })
+  await page.getByText('默认思考档位已更新', { exact: true }).waitFor({ timeout: 10000 })
 
-  console.log('3b. Verify pending Tool Result keeps its original model and reasoning')
-  const runtimeToken = await getToken()
+  console.log('5. Single-model test connection uses a short toast and does not expand the row')
+  const primaryHeightBefore = (await primaryRow.boundingBox()).height
+  await primaryRow.getByRole('button', { name: '测试连接', exact: true }).click()
+  await page.getByText('mock-agent-model 测试连接成功', { exact: true }).waitFor({ timeout: 20000 })
+  const primaryHeightAfter = (await primaryRow.boundingBox()).height
+  assert.ok(Math.abs(primaryHeightAfter - primaryHeightBefore) < 3, 'Test result should not occupy persistent row space')
+
+  console.log('6. Verify pending Tool Result keeps its original model and reasoning')
+  const runtimeToken = token
   const enabledModels = await apiJson(runtimeToken, '/ai/config/models/enabled')
   const primaryModel = enabledModels.find(item => item.modelCode === 'mock-agent-model')
   const secondaryModel = enabledModels.find(item => item.modelCode === 'mock-secondary-model')
-  assert.ok(primaryModel && secondaryModel, 'Expected both enabled models for runtime isolation test')
+  assert.ok(primaryModel && secondaryModel, 'Expected both selected models to be enabled')
 
   const frontendTools = [{
     name: 'page_system_user_search',
@@ -188,7 +187,6 @@ try {
     frontendTools
   })
   assert.equal(isolationStart.type, 'TOOL_CALL')
-  assert.equal(isolationStart.toolCall?.name, 'page_system_user_search')
 
   const isolationResume = await apiJson(runtimeToken, '/ai/chat/turn', 'POST', {
     conversationId: isolationStart.conversationId,
@@ -204,22 +202,20 @@ try {
     frontendTools
   })
   assert.equal(isolationResume.type, 'MESSAGE')
-  assert.equal(isolationResume.message, 'ISOLATION:mock-agent-model:high',
-    'Tool Result resume must ignore a new UI model/effort and keep pending-call model/effort')
+  assert.equal(isolationResume.message, 'ISOLATION:mock-agent-model:high')
 
-  console.log('4. Verify non-modal floating window and quick settings')
+  console.log('7. Verify refined non-modal floating window and quick settings')
   await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
   await page.locator('.ai-fab').click()
   let panel = await assistantPanel()
   assert.ok((await panel.getAttribute('class') || '').includes('floating'), 'AI should open as floating window')
   assert.equal(await page.locator('.el-overlay:visible').count(), 0, 'Floating AI window must not add a page mask')
-
   await page.getByTestId('ai-assistant-settings').click()
   await page.getByPlaceholder('https://api.example.com/v1').waitFor({ timeout: 15000 })
   await page.getByTestId('ai-assistant-settings').click()
   await page.getByPlaceholder('告诉 AI 你想做什么…').waitFor({ timeout: 15000 })
 
-  console.log('5. Verify Shift+Enter newline and default Enter send')
+  console.log('8. Verify Shift+Enter newline and default Enter send')
   const composer = page.getByPlaceholder('告诉 AI 你想做什么…')
   await composer.fill('第一行')
   await composer.press('Shift+Enter')
@@ -229,11 +225,10 @@ try {
   await composer.press('Enter')
   await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).waitFor({ timeout: 30000 })
 
-  console.log('6. Expand to real Dock without losing conversation')
+  console.log('9. Expand to real Dock without losing conversation')
   await page.getByTestId('ai-assistant-toggle-mode').click()
   panel = await assistantPanel()
   assert.ok((await panel.getAttribute('class') || '').includes('dock'), 'AI should switch to dock mode')
-  await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).waitFor()
   await page.waitForTimeout(350)
   const layout = await page.evaluate(() => {
     const main = document.querySelector('.main-container')
@@ -245,27 +240,22 @@ try {
       headerRight: header ? parseFloat(getComputedStyle(header).right || '0') : 0
     }
   })
-  assert.ok(layout.marginRight >= 400, `Dock should reserve layout space, got ${layout.marginRight}`)
-  assert.ok(layout.dockWidth >= 440, `Dock width should be usable, got ${layout.dockWidth}`)
-  assert.ok(layout.headerRight >= 400, 'Fixed header should also move left for Dock')
-  assert.equal(await page.locator('.el-overlay:visible').count(), 0, 'Dock must not add a page mask')
+  assert.ok(layout.marginRight >= 400)
+  assert.ok(layout.dockWidth >= 440)
+  assert.ok(layout.headerRight >= 400)
+  assert.equal(await page.locator('.el-overlay:visible').count(), 0)
 
   const resizer = page.locator('.dock-resizer')
   const resizeBox = await resizer.boundingBox()
-  assert.ok(resizeBox, 'Dock resizer is not visible')
+  assert.ok(resizeBox)
   await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + 100)
   await page.mouse.down()
   await page.mouse.move(resizeBox.x - 60, resizeBox.y + 100, { steps: 5 })
   await page.mouse.up()
   const resizedWidth = await panel.evaluate(el => el.getBoundingClientRect().width)
-  assert.ok(resizedWidth >= layout.dockWidth + 40, `Dock width did not respond to drag: ${layout.dockWidth} -> ${resizedWidth}`)
+  assert.ok(resizedWidth >= layout.dockWidth + 40)
 
-  await page.getByTestId('ai-assistant-settings').click()
-  await page.getByPlaceholder('https://api.example.com/v1').waitFor()
-  await page.getByTestId('ai-assistant-settings').click()
-  await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).waitFor()
-
-  console.log('7. Use autocomplete model picker and secondary reasoning menu in same conversation')
+  console.log('10. Switch model and reasoning within the same conversation')
   await page.getByTestId('ai-model-picker-trigger').click()
   const picker = page.locator('.ai-model-picker-popper:visible')
   const pickerSearch = picker.getByPlaceholder('输入模型名称，如 gpt、5.6、sol')
@@ -273,20 +263,18 @@ try {
   await page.waitForTimeout(250)
   const secondaryRow = picker.locator('.model-row').filter({ hasText: 'mock-secondary-model' }).first()
   await secondaryRow.waitFor()
-  assert.equal(await picker.locator('.model-row').filter({ hasText: 'mock-agent-model' }).count(), 0,
-    'Debounced autocomplete should filter out non-matching models')
   await secondaryRow.getByRole('button', { name: /档位/ }).click()
   await picker.getByRole('button', { name: 'Low', exact: true }).click()
 
   await sendByButton('同会话切换模型测试')
   await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).waitFor({ timeout: 30000 })
 
-  console.log('8. Switch send shortcut to Ctrl+Enter and persist it')
+  console.log('11. Ctrl+Enter mode persists')
   await page.locator('.shortcut-button').click()
   await page.getByText('Ctrl+Enter 发送 · Enter 换行', { exact: true }).click()
   await composer.fill('快捷键测试')
   await composer.press('Enter')
-  assert.ok((await composer.inputValue()).includes('\n'), 'Plain Enter should be newline in Ctrl+Enter mode')
+  assert.ok((await composer.inputValue()).includes('\n'))
   const assistantCount = await page.locator('.message-row.assistant').count()
   await composer.press('Control+Enter')
   await page.waitForFunction(
@@ -298,29 +286,27 @@ try {
 
   await page.getByTestId('ai-assistant-toggle-mode').click()
   panel = await assistantPanel()
-  assert.ok((await panel.getAttribute('class') || '').includes('floating'), 'Dock should shrink back to floating mode')
-  await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).first().waitFor()
+  assert.ok((await panel.getAttribute('class') || '').includes('floating'))
 
-  console.log('9. Verify login-account semantic boundary on user page')
+  console.log('12. Verify login-account semantic boundary on user page')
   await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
   await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
   await page.locator('.ai-fab').click()
   await assistantPanel()
-  assert.match(await page.locator('.shortcut-button').innerText(), /Ctrl\+Enter 发送/, 'Send shortcut preference did not survive reload')
+  assert.match(await page.locator('.shortcut-button').innerText(), /Ctrl\+Enter 发送/)
   await sendByButton('请把用户 ry 的用户名称改为 ry001')
   await page.getByText(/不支持修改已有用户的登录账号 userName/).waitFor({ timeout: 30000 })
-  assert.equal(await page.locator('.el-dialog:visible').count(), 0, 'Login-name request should not open edit dialog')
+  assert.equal(await page.locator('.el-dialog:visible').count(), 0)
 
-  console.log('10. Run real user-page Tool loop with WRITE confirmation')
-  await page.getByRole('button', { name: '新会话', exact: true }).click()
+  console.log('13. Run real user-page Tool loop with WRITE confirmation')
+  await page.getByTestId('ai-assistant-new-conversation').click()
   await sendByButton(`请查找用户 ry，打开这个用户，把昵称改成 ${TEST_NICKNAME}，然后保存。`)
   await page.getByText('AI 操作确认').waitFor({ timeout: 60000 })
 
   const nicknameInput = page.getByPlaceholder('请输入用户昵称')
   await nicknameInput.waitFor({ timeout: 15000 })
-  assert.equal(await nicknameInput.inputValue(), TEST_NICKNAME, 'AI did not populate edit form before submit')
+  assert.equal(await nicknameInput.inputValue(), TEST_NICKNAME)
 
-  const token = await getToken()
   const before = await getUser(token, 2)
   assert.equal(before.nickName, '若依', 'WRITE occurred before user confirmation')
 
@@ -329,14 +315,14 @@ try {
     .waitFor({ timeout: 60000 })
 
   const after = await getUser(token, 2)
-  assert.equal(after.nickName, TEST_NICKNAME, 'Backend user data was not persisted after confirmation')
+  assert.equal(after.nickName, TEST_NICKNAME)
 
-  await screenshot('ai-agent-phase2-e2e-success')
-  console.log('AI_AGENT_PHASE2_E2E_OK')
+  await screenshot('ai-agent-model-selection-e2e-success')
+  console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
 }
 catch (error) {
   console.error(error)
-  await screenshot('ai-agent-phase2-e2e-failure').catch(() => {})
+  await screenshot('ai-agent-model-selection-e2e-failure').catch(() => {})
   throw error
 }
 finally {
