@@ -12,8 +12,30 @@ function normalizeFields(fields = []) {
     required: !!field.required,
     editable: field.editable !== false,
     options: field.options || undefined,
+    itemType: field.itemType || undefined,
+    inputSchema: field.inputSchema || undefined,
     description: field.description || undefined
   }))
+}
+
+function fieldInputSchema(field) {
+  const schema = field.inputSchema ? { ...field.inputSchema } : { type: field.type }
+  if (!schema.description) schema.description = field.description || field.label
+  if (!schema.enum && Array.isArray(field.options)) {
+    const values = field.options
+      .map(option => option && typeof option === 'object' ? option.value : option)
+      .filter(value => ['string', 'number', 'boolean'].includes(typeof value))
+    if (values.length) schema.enum = values
+  }
+  if (schema.type === 'array' && !schema.items) {
+    schema.items = { type: field.itemType || 'string' }
+  }
+  return schema
+}
+
+function pickDeclaredArgs(args, fields) {
+  const allowed = new Set(fields.map(field => field.key))
+  return Object.fromEntries(Object.entries(args || {}).filter(([key]) => allowed.has(key)))
 }
 
 export function createAiCrudPageCapabilities(options) {
@@ -30,13 +52,11 @@ export function createAiCrudPageCapabilities(options) {
       requiredPermission: options.query.permission,
       description: `设置${options.pageName || '当前页面'}查询条件并执行查询`,
       inputSchema: objectSchema(
-        Object.fromEntries(queryFields.map(field => [field.key, {
-          type: field.type,
-          description: field.description || field.label
-        }]))
+        Object.fromEntries(queryFields.map(field => [field.key, fieldInputSchema(field)]))
       ),
       handler: async args => {
-        await options.query.apply?.(args || {})
+        const safeArgs = pickDeclaredArgs(args, queryFields)
+        await options.query.apply?.(safeArgs)
         const result = await options.query.run()
         return options.query.result?.(result) || {
           total: options.getTotal?.() ?? null,
@@ -92,17 +112,15 @@ export function createAiCrudPageCapabilities(options) {
     }
 
     if (form.setFields) {
-      const fieldSchema = Object.fromEntries(formFields.filter(item => item.editable).map(field => [field.key, {
-        type: field.type,
-        description: field.description || field.label
-      }]))
+      const editableFields = formFields.filter(item => item.editable)
+      const fieldSchema = Object.fromEntries(editableFields.map(field => [field.key, fieldInputSchema(field)]))
       if (form.openAdd) {
         tools.push({
           name: `${prefix}_add_set_fields`,
           requiredPermission: form.addPermission,
           description: `填写当前已打开的${options.pageName || '页面'}新增表单字段，但不保存`,
           inputSchema: objectSchema(fieldSchema),
-          handler: args => form.setFields(args || {}, 'add')
+          handler: args => form.setFields(pickDeclaredArgs(args, editableFields), 'add')
         })
       }
       if (form.openEdit) {
@@ -111,7 +129,7 @@ export function createAiCrudPageCapabilities(options) {
           requiredPermission: form.editPermission,
           description: `修改当前已打开的${options.pageName || '页面'}编辑表单字段，但不保存`,
           inputSchema: objectSchema(fieldSchema),
-          handler: args => form.setFields(args || {}, 'edit')
+          handler: args => form.setFields(pickDeclaredArgs(args, editableFields), 'edit')
         })
       }
     }
