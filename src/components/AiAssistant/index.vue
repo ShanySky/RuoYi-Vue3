@@ -114,7 +114,7 @@
                   <div v-else class="history-groups">
                     <section v-for="group in historyGroups" :key="group.label" class="history-group">
                       <div class="history-group-label">{{ group.label }}</div>
-                      <article v-for="item in group.items" :key="item.conversationId" class="history-item">
+                      <article v-for="item in group.items" :key="item.conversationId" class="history-item" :data-conversation-id="item.conversationId">
                         <button class="history-main" type="button" @click="restoreConversationFromHistory(item.conversationId)">
                           <span class="history-title">{{ item.title || `会话 #${item.conversationId}` }}</span>
                           <span class="history-time">{{ formatHistoryTime(item.updateTime || item.createTime) }}</span>
