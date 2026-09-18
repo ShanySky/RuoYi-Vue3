@@ -70,11 +70,16 @@ function fieldInputSchema(field) {
   const schema = configured ? { ...configured } : { type: field.type }
   if (!schema.description) schema.description = field.description || field.label
   const options = resolvedOptions(field)
-  if (!schema.enum && Array.isArray(options)) {
-    const values = options
+  const optionValues = Array.isArray(options)
+    ? options
       .map(option => option && typeof option === 'object' ? option.value : option)
       .filter(value => ['string', 'number', 'boolean'].includes(typeof value))
-    if (values.length) schema.enum = values
+    : []
+  if (schema.type === 'array') {
+    if (!schema.items) schema.items = { type: field.itemType || 'string' }
+    if (optionValues.length && !schema.items.enum) schema.items.enum = optionValues
+  } else if (!schema.enum && optionValues.length) {
+    schema.enum = optionValues
   }
   const rules = serializeValidationRules(field.validationRules) || []
   for (const rule of rules) {
@@ -82,9 +87,6 @@ function fieldInputSchema(field) {
     if (schema.type === 'string' && rule?.max != null && schema.maxLength == null) schema.maxLength = rule.max
     if (schema.type === 'string' && rule?.pattern && schema.pattern == null) schema.pattern = rule.pattern
     if (schema.type === 'string' && rule?.type === 'email' && schema.format == null) schema.format = 'email'
-  }
-  if (schema.type === 'array' && !schema.items) {
-    schema.items = { type: field.itemType || 'string' }
   }
   return schema
 }
