@@ -43,17 +43,37 @@
             <div class="title">模型</div>
             <div class="subtitle">只有启用的模型会出现在 AI 助手中。Tool Calling 测试不会执行任何业务操作。</div>
           </div>
-          <el-button @click="loadModels">刷新</el-button>
+          <div class="model-header-actions">
+            <el-input v-model="modelQuery" clearable placeholder="输入 gpt、5.6、sol 等实时匹配" style="width: 300px" />
+            <el-button @click="loadModels">刷新</el-button>
+          </div>
         </div>
       </template>
 
-      <el-table :data="models" v-loading="modelLoading">
+      <el-table :data="filteredModels" v-loading="modelLoading">
         <el-table-column prop="modelCode" label="模型" min-width="240" />
         <el-table-column label="Tool Calling" width="140">
           <template #default="scope">
             <el-tag :type="scope.row.toolCapability === 'SUPPORTED' ? 'success' : scope.row.toolCapability === 'UNSUPPORTED' ? 'danger' : 'info'">
               {{ scope.row.toolCapability || 'UNKNOWN' }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="思考档位" min-width="190">
+          <template #default="scope">
+            <div v-if="scope.row.reasoningCapability === 'SUPPORTED'" class="reasoning-cell">
+              <el-select
+                :model-value="scope.row.defaultReasoningEffort || ''"
+                size="small"
+                style="width: 145px"
+                @change="value => changeDefaultReasoning(scope.row, value)"
+              >
+                <el-option label="Provider 默认" value="" />
+                <el-option v-for="effort in reasoningOptions(scope.row)" :key="effort" :label="effortLabel(effort)" :value="effort" />
+              </el-select>
+              <span class="capability-text">{{ scope.row.reasoningEfforts }}</span>
+            </div>
+            <el-tag v-else type="info">{{ scope.row.reasoningCapability || 'UNKNOWN' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="启用" width="100" align="center">
@@ -67,10 +87,11 @@
             <el-button v-else :data-testid="`ai-model-default-${scope.row.modelId}`" link type="primary" @click="makeDefault(scope.row)">设为默认</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="测试" width="180" align="center">
+        <el-table-column label="测试" width="230" align="center">
           <template #default="scope">
             <el-button link type="primary" :disabled="scope.row.enabled !== '0'" @click="testChat(scope.row)">聊天</el-button>
             <el-button link type="primary" :disabled="scope.row.enabled !== '0'" @click="testTools(scope.row)">工具</el-button>
+            <el-button link type="primary" :disabled="scope.row.enabled !== '0'" @click="testReasoning(scope.row)">思考</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -82,7 +103,8 @@
 import { ElMessage } from 'element-plus'
 import {
   getAiProvider, saveAiProvider, testAiProvider, syncAiModels, listAiModels,
-  setAiModelEnabled, setDefaultAiModel, testAiModelChat, testAiModelTools
+  setAiModelEnabled, setDefaultAiModel, testAiModelChat, testAiModelTools,
+  setDefaultAiReasoning, testAiModelReasoning
 } from '@/api/ai/config'
 
 const providerRef = ref(null)
@@ -90,10 +112,46 @@ const provider = reactive({})
 const form = reactive({ name: '默认 AI 服务', baseUrl: '', token: '', enabled: false, timeoutSeconds: 30 })
 const rules = { baseUrl: [{ required: true, message: 'Base URL 不能为空', trigger: 'blur' }] }
 const models = ref([])
+const modelQuery = ref('')
 const saving = ref(false)
 const testing = ref(false)
 const syncing = ref(false)
 const modelLoading = ref(false)
+
+function modelLabel(model) {
+  return model?.displayName || model?.modelCode || ''
+}
+
+const filteredModels = computed(() => {
+  const q = modelQuery.value.trim().toLowerCase()
+  if (q) {
+    return [...models.value]
+      .map(model => {
+        const code = String(model.modelCode || '').toLowerCase()
+        const label = modelLabel(model).toLowerCase()
+        const prefix = code.startsWith(q) || label.startsWith(q)
+        return { model, rank: prefix ? 0 : (code.includes(q) || label.includes(q)) ? 1 : 9 }
+      })
+      .filter(item => item.rank < 9)
+      .sort((a, b) => a.rank - b.rank || modelLabel(a.model).localeCompare(modelLabel(b.model)))
+      .slice(0, 30)
+      .map(item => item.model)
+  }
+  return models.value
+    .filter(item => item.defaultModel === '0' || item.enabled === '0')
+    .sort((a, b) => (a.defaultModel === '0' ? -1 : 0) - (b.defaultModel === '0' ? -1 : 0))
+    .slice(0, 12)
+})
+
+function reasoningOptions(model) {
+  if (model?.reasoningCapability !== 'SUPPORTED' || !model?.reasoningEfforts) return []
+  return String(model.reasoningEfforts).split(',').map(item => item.trim()).filter(Boolean)
+}
+
+function effortLabel(value) {
+  const labels = { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh' }
+  return labels[value] || value
+}
 
 async function loadProvider() {
   const res = await getAiProvider()
@@ -173,6 +231,18 @@ async function testTools(row) {
   ElMessage.success(`Tool Calling：${res.data}`)
 }
 
+async function testReasoning(row) {
+  const res = await testAiModelReasoning(row.modelId)
+  await loadModels()
+  ElMessage.success(`已验证思考档位：${res.data}`)
+}
+
+async function changeDefaultReasoning(row, value) {
+  await setDefaultAiReasoning(row.modelId, value || null)
+  await loadModels()
+  ElMessage.success('默认思考档位已更新')
+}
+
 onMounted(async () => {
   await loadProvider()
   await loadModels()
@@ -181,6 +251,9 @@ onMounted(async () => {
 
 <style scoped>
 .card-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.model-header-actions { display: flex; align-items: center; gap: 8px; }
+.reasoning-cell { display: flex; flex-direction: column; gap: 4px; }
+.capability-text { color: var(--el-text-color-secondary); font-size: 11px; }
 .title { font-size: 16px; font-weight: 600; }
 .subtitle { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 13px; }
 .token-tip { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
