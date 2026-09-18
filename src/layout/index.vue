@@ -1,9 +1,5 @@
 <template>
-  <div
-    :class="[classObj, { 'ai-docked': aiDocked }]"
-    class="app-wrapper"
-    :style="{ '--current-color': theme, '--current-color-light': theme + '1a', '--current-color-dark-bg': theme + '33', '--ai-dock-width': aiDockWidth + 'px' }"
-  >
+  <div :class="[classObj, { 'ai-docked': aiDocked }]" class="app-wrapper" :style="{ '--current-color': theme, '--current-color-light': theme + '1a', '--current-color-dark-bg': theme + '33', '--ai-dock-width': aiDockWidth + 'px' }">
     <div v-if="device === 'mobile' && sidebar.opened" class="drawer-bg" @click="handleClickOutside"/>
     <sidebar v-if="!sidebar.hide" class="sidebar-container" />
     <div :class="{ hasTagsView: needTagsView, sidebarHide: sidebar.hide }" class="main-container">
@@ -42,8 +38,8 @@ const classObj = computed(() => ({
   mobile: device.value === 'mobile'
 }))
 
-const { width } = useWindowSize()
-const WIDTH = 992
+const { width, height } = useWindowSize()
+const WIDTH = 992 // refer to Bootstrap's responsive design
 
 watch(() => device.value, () => {
   if (device.value === 'mobile' && sidebar.value.opened) {
