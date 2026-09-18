@@ -850,8 +850,25 @@ onBeforeUnmount(() => {
   font-size: var(--ai-chat-font-size, 13px);
   line-height: 1.6;
 }
+.esc-stop-hint {
+  margin: 0 0 5px;
+  color: var(--el-color-warning);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.esc-stop-hint kbd {
+  padding: 1px 4px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font-size: 9px;
+}
 .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
 .composer-left { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.composer-actions { display: flex; align-items: center; gap: 4px; }
+.composer-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .shortcut-button {
   border: 0;
   background: transparent;
