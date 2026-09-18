@@ -95,7 +95,7 @@ try {
   await quickSettings.getByRole('button', { name: '测试模型加载', exact: true }).click()
   await quickSettings.getByText(/模型加载成功：发现 2 个远端模型/).waitFor({ timeout: 20000 })
   assert.equal(await quickSettings.locator('.system-model-card').count(), 0, 'Remote discovery must not auto-add system models')
-  await quickSettings.getByRole('button', { name: '选择模型', exact: true }).click()
+  await quickSettings.locator('.compact-form').getByRole('button', { name: '选择模型', exact: true }).click()
   let remoteDialog = page.locator('.ai-remote-model-dialog:visible')
   await remoteDialog.getByText('选择要加入系统的模型', { exact: true }).waitFor()
   const quickRemoteSearch = remoteDialog.getByPlaceholder(/输入 gpt、5.6、sol/)
