@@ -126,6 +126,8 @@
 
 <script setup name="Logininfor">
 import { list, delLogininfor, cleanLogininfor, unlockLogininfor } from "@/api/monitor/logininfor"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_common_status } = useDict("sys_common_status")
@@ -155,9 +157,11 @@ const queryParams = ref({
 /** 查询登录日志列表 */
 function getList() {
   loading.value = true
-  list(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
+  return list(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
     logininforList.value = response.rows
     total.value = response.total
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -165,7 +169,7 @@ function getList() {
 /** 搜索按钮操作 */
 function handleQuery() {
   queryParams.value.pageNum = 1
-  getList()
+  return getList()
 }
 
 /** 重置按钮操作 */
@@ -228,6 +232,94 @@ function handleExport() {
     ...queryParams.value,
   }, `logininfor_${new Date().getTime()}.xlsx`)
 }
+
+
+const logininforAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '登录日志',
+  toolPrefix: 'page_monitor_logininfor',
+  queryFields: [
+    { key: 'ipaddr', label: '登录地址' },
+    { key: 'userName', label: '用户名称' },
+    { key: 'status', label: '登录状态', options: ['0', '1'] },
+    { key: 'dateRange', label: '登录时间范围', type: 'array', itemType: 'string' },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' }
+  ],
+  query: {
+    permission: 'monitor:logininfor:list',
+    apply: async args => {
+      for (const key of ['ipaddr', 'userName', 'status', 'pageNum', 'pageSize']) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      }
+      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+    },
+    run: getList,
+    reset: async () => {
+      dateRange.value = []
+      Object.assign(queryParams.value, {
+        pageNum: 1, pageSize: 10, ipaddr: undefined, userName: undefined,
+        status: undefined, orderByColumn: undefined, isAsc: undefined
+      })
+      return getList()
+    }
+  },
+  actions: [
+    {
+      suffix: 'delete',
+      permission: 'monitor:logininfor:remove',
+      label: '删除登录日志',
+      inputSchema: { type: 'object', properties: { infoIds: { type: 'array', items: { type: 'integer' } } }, required: ['infoIds'], additionalProperties: false },
+      handler: async ({ infoIds }) => {
+        if (!Array.isArray(infoIds) || !infoIds.length) throw new Error('没有可删除的登录日志ID')
+        await delLogininfor(infoIds.join(','))
+        await getList()
+        return { deletedInfoIds: infoIds }
+      }
+    },
+    {
+      suffix: 'clean',
+      permission: 'monitor:logininfor:remove',
+      label: '清空全部登录日志',
+      handler: async () => {
+        await cleanLogininfor()
+        await getList()
+        return { cleaned: true }
+      }
+    },
+    {
+      suffix: 'unlock',
+      permission: 'monitor:logininfor:unlock',
+      label: '解锁登录用户',
+      inputSchema: { type: 'object', properties: { userName: { type: 'string' } }, required: ['userName'], additionalProperties: false },
+      handler: async ({ userName }) => {
+        await unlockLogininfor(userName)
+        return { unlocked: true, userName }
+      }
+    },
+    {
+      suffix: 'export',
+      permission: 'monitor:logininfor:export',
+      label: '按当前查询条件导出登录日志',
+      handler: async () => {
+        handleExport()
+        return { started: true, query: { ...queryParams.value }, dateRange: [...dateRange.value] }
+      }
+    }
+  ],
+  getRows: () => logininforList.value.slice(0, 50).map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value },
+    dateRange: [...dateRange.value],
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value }
+  })
+})
+
+useAiPageTools('monitor-logininfor', logininforAiCapabilities.tools, logininforAiCapabilities.getContext, {
+  route: '/monitor/logininfor',
+  pageName: '登录日志'
+})
 
 getList()
 </script>

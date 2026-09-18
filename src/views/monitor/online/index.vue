@@ -59,6 +59,8 @@
 
 <script setup name="Online">
 import { forceLogout, list as initData } from "@/api/monitor/online"
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 
@@ -76,9 +78,11 @@ const queryParams = ref({
 /** 查询登录日志列表 */
 function getList() {
   loading.value = true
-  initData(queryParams.value).then(response => {
+  return initData(queryParams.value).then(response => {
     onlineList.value = response.rows
     total.value = response.total
+    return response
+  }).finally(() => {
     loading.value = false
   })
 }
@@ -86,13 +90,13 @@ function getList() {
 /** 搜索按钮操作 */
 function handleQuery() {
   pageNum.value = 1
-  getList()
+  return getList()
 }
 
 /** 重置按钮操作 */
 function resetQuery() {
   proxy.resetForm("queryRef")
-  handleQuery()
+  return handleQuery()
 }
 
 /** 强退按钮操作 */
@@ -104,6 +108,50 @@ function handleForceLogout(row) {
     proxy.$modal.msgSuccess("删除成功")
   }).catch(() => {})
 }
+
+
+const onlineAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '在线用户',
+  toolPrefix: 'page_monitor_online',
+  queryFields: [
+    { key: 'ipaddr', label: '登录地址' },
+    { key: 'userName', label: '用户名称' }
+  ],
+  query: {
+    permission: 'monitor:online:list',
+    apply: async args => {
+      for (const key of ['ipaddr', 'userName']) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      }
+    },
+    run: getList,
+    reset: resetQuery
+  },
+  actions: [
+    {
+      suffix: 'force_logout',
+      permission: 'monitor:online:forceLogout',
+      label: '强制在线会话退出',
+      inputSchema: { type: 'object', properties: { tokenId: { type: 'string' } }, required: ['tokenId'], additionalProperties: false },
+      handler: async ({ tokenId }) => {
+        await forceLogout(tokenId)
+        await getList()
+        return { forcedLogout: true, tokenId }
+      }
+    }
+  ],
+  getRows: () => onlineList.value.slice(0, 50).map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getContext: () => ({
+    query: { ...queryParams.value },
+    pagination: { pageNum: pageNum.value, pageSize: pageSize.value, total: total.value }
+  })
+})
+
+useAiPageTools('monitor-online', onlineAiCapabilities.tools, onlineAiCapabilities.getContext, {
+  route: '/monitor/online',
+  pageName: '在线用户'
+})
 
 getList()
 </script>

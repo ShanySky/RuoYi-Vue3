@@ -67,6 +67,8 @@
 <script setup name="Cache">
 import { getCache } from '@/api/monitor/cache'
 import * as echarts from 'echarts'
+import { useAiPageTools } from "@/ai/toolRegistry"
+import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
 
 const cache = ref([])
 const commandstats = ref(null)
@@ -75,7 +77,7 @@ const { proxy } = getCurrentInstance()
 
 function getList() {
   proxy.$modal.loading("正在加载缓存监控数据，请稍候！")
-  getCache().then(response => {
+  return getCache().then(response => {
     proxy.$modal.closeLoading()
     cache.value = response.data
 
@@ -127,6 +129,48 @@ function getList() {
     })
   })
 }
+
+
+function cacheSnapshot() {
+  const info = cache.value?.info || {}
+  return {
+    redisVersion: info.redis_version,
+    redisMode: info.redis_mode,
+    tcpPort: info.tcp_port,
+    connectedClients: info.connected_clients,
+    uptimeDays: info.uptime_in_days,
+    usedMemory: info.used_memory_human,
+    maxMemory: info.maxmemory_human,
+    aofEnabled: info.aof_enabled,
+    rdbLastSaveStatus: info.rdb_last_bgsave_status,
+    dbSize: cache.value?.dbSize,
+    inputKbps: info.instantaneous_input_kbps,
+    outputKbps: info.instantaneous_output_kbps,
+    commandStats: (cache.value?.commandStats || []).slice(0, 30)
+  }
+}
+
+const cacheAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '缓存监控',
+  toolPrefix: 'page_monitor_cache',
+  actions: [
+    {
+      suffix: 'view',
+      permission: 'monitor:cache:list',
+      label: '查看 Redis 缓存运行指标',
+      handler: async () => {
+        if (!cache.value?.info) await getList()
+        return cacheSnapshot()
+      }
+    }
+  ],
+  getContext: () => cacheSnapshot()
+})
+
+useAiPageTools('monitor-cache', cacheAiCapabilities.tools, cacheAiCapabilities.getContext, {
+  route: '/monitor/cache',
+  pageName: '缓存监控'
+})
 
 getList()
 </script>
