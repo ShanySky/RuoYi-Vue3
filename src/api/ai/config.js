@@ -8,8 +8,8 @@ export function saveAiProvider(data) {
   return request({ url: '/ai/config/provider', method: 'post', data, headers: { repeatSubmit: false } })
 }
 
-export function testAiProvider(data) {
-  return request({ url: '/ai/config/provider/test', method: 'post', data, headers: { repeatSubmit: false } })
+export function testAiModelLoad(data) {
+  return request({ url: '/ai/config/provider/test-model-load', method: 'post', data, headers: { repeatSubmit: false } })
 }
 
 export function discoverAiModels() {
