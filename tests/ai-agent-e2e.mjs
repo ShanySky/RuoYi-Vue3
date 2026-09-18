@@ -1295,6 +1295,20 @@ try {
   assert.ok(userCapabilitySnapshot.context.pagination)
   assert.ok(userCapabilitySnapshot.context.query)
 
+  async function invokeCurrentPageTool(toolName, args = {}) {
+    return await page.evaluate(async ({ expectedTool, toolArgs }) => {
+      const registry = await import('/src/ai/toolRegistry.js')
+      const runtime = registry.getCurrentPageRuntime()
+      const definitions = registry.getFrontendToolDefinitions()
+      if (!runtime.pageInstanceId) throw new Error('Current AI Page Capability runtime is not ready')
+      if (!definitions.some(item => item.name === expectedTool)) {
+        throw new Error(`Expected semantic tool not registered on current page: ${expectedTool}`)
+      }
+      const result = await registry.invokeFrontendTool(expectedTool, toolArgs, runtime)
+      return { runtime, result }
+    }, { expectedTool: toolName, toolArgs: args })
+  }
+
   async function createTemporaryUser(suffix) {
     await invokeRegisteredPageTool('/system/user', 'page_system_user_add_open', {})
     const addContext = await page.evaluate(async () => {
@@ -1306,7 +1320,7 @@ try {
       || (addContext.form?.roleOptions || []).find(item => String(item.status) === '0')
     const userName = `aie2e_${Date.now()}_${suffix}`
     const password = 'Abc123!@#'
-    await invokeRegisteredPageTool('/system/user', 'page_system_user_add_set_fields', {
+    await invokeCurrentPageTool('page_system_user_add_set_fields', {
       userName,
       password,
       nickName: `AI E2E ${suffix}`,
@@ -1315,7 +1329,7 @@ try {
       roleIds: activeRole ? [Number(activeRole.roleId)] : [],
       remark: 'R3 F4 reversible acceptance'
     })
-    const saved = await invokeRegisteredPageTool('/system/user', 'page_system_user_add_submit', {})
+    const saved = await invokeCurrentPageTool('page_system_user_add_submit', {})
     assert.ok(Number(saved.result.userId) > 0)
     const created = await getUser(token, Number(saved.result.userId))
     assert.equal(created.userName, userName)
