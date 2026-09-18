@@ -40,17 +40,37 @@ const rules = ref({
   phonenumber: [{ required: true, message: "手机号码不能为空", trigger: "blur" }, { pattern: /^1[3|4|5|6|7|8|9][0-9]\d{8}$/, message: "请输入正确的手机号码", trigger: "blur" }],
 })
 
+function getAiSnapshot() {
+  return {
+    nickName: form.value.nickName,
+    phonenumber: form.value.phonenumber,
+    email: form.value.email,
+    sex: form.value.sex
+  }
+}
+
+async function setFieldsForAi(args = {}) {
+  for (const key of ['nickName', 'phonenumber', 'email', 'sex']) {
+    if (Object.prototype.hasOwnProperty.call(args, key)) form.value[key] = args[key]
+  }
+  await nextTick()
+  return { saved: false, form: getAiSnapshot() }
+}
+
+async function submitCore() {
+  await proxy.$refs.userRef.validate()
+  await updateUserProfile(form.value)
+  proxy.$modal.msgSuccess("修改成功")
+  props.user.nickName = form.value.nickName
+  props.user.phonenumber = form.value.phonenumber
+  props.user.email = form.value.email
+  props.user.sex = form.value.sex
+  return { saved: true, form: getAiSnapshot() }
+}
+
 /** 提交按钮 */
 function submit() {
-  proxy.$refs.userRef.validate(valid => {
-    if (valid) {
-      updateUserProfile(form.value).then(() => {
-        proxy.$modal.msgSuccess("修改成功")
-        props.user.phonenumber = form.value.phonenumber
-        props.user.email = form.value.email
-      })
-    }
-  })
+  submitCore().catch(() => {})
 }
 
 /** 关闭按钮 */
@@ -64,4 +84,10 @@ watch(() => props.user, user => {
     form.value = { nickName: user.nickName, phonenumber: user.phonenumber, email: user.email, sex: user.sex }
   }
 },{ immediate: true })
+
+defineExpose({
+  getAiSnapshot,
+  setFieldsForAi,
+  submitCore
+})
 </script>
