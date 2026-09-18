@@ -288,5 +288,97 @@ function handleExport() {
   }, `post_${new Date().getTime()}.xlsx`)
 }
 
+const postAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '岗位管理',
+  toolPrefix: 'page_system_post',
+  queryFields: [
+    { key: 'postCode', label: '岗位编码' },
+    { key: 'postName', label: '岗位名称' },
+    { key: 'status', label: '状态', description: '0正常，1停用' },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' }
+  ],
+  formFields: [
+    { key: 'postCode', label: '岗位编码', required: true },
+    { key: 'postName', label: '岗位名称', required: true },
+    { key: 'postSort', label: '岗位顺序', type: 'integer', required: true },
+    { key: 'status', label: '岗位状态', description: '0正常，1停用' },
+    { key: 'remark', label: '备注' }
+  ],
+  query: {
+    permission: 'system:post:list',
+    apply: async args => {
+      for (const key of ['postCode', 'postName', 'status', 'pageNum', 'pageSize']) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      }
+    },
+    run: getList,
+    reset: async () => resetQuery()
+  },
+  form: {
+    addPermission: 'system:post:add',
+    editPermission: 'system:post:edit',
+    recordIdKey: 'postId',
+    recordIdLabel: '岗位ID',
+    openAdd: async () => { handleAdd(); return form.value },
+    openEdit: postId => handleUpdate({ postId }),
+    snapshot: () => ({ ...form.value }),
+    setFields: async args => {
+      const allowed = ['postCode', 'postName', 'postSort', 'status', 'remark']
+      const changedFields = []
+      for (const key of allowed) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) {
+          form.value[key] = args[key]
+          changedFields.push(key)
+        }
+      }
+      await nextTick()
+      return { changedFields, saved: false, form: { ...form.value } }
+    },
+    submit: () => submitFormCore()
+  },
+  actions: [
+    {
+      suffix: 'delete',
+      permission: 'system:post:remove',
+      label: '删除岗位',
+      inputSchema: { type: 'object', properties: { postIds: { type: 'array', items: { type: 'integer' } } }, required: ['postIds'], additionalProperties: false },
+      handler: async args => {
+        const values = Array.isArray(args.postIds) ? args.postIds : []
+        if (!values.length) throw new Error('没有可删除的岗位ID')
+        await delPost(values.join(','))
+        await getList()
+        return { deletedPostIds: values }
+      }
+    },
+    {
+      suffix: 'export',
+      permission: 'system:post:export',
+      label: '按当前查询条件导出岗位',
+      handler: async () => {
+        handleExport()
+        return { started: true, query: { ...queryParams.value } }
+      }
+    }
+  ],
+  getRows: () => postList.value.slice(0, 50).map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value },
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+    form: {
+      open: open.value,
+      mode: open.value ? (form.value.postId == undefined ? 'add' : 'edit') : null,
+      value: open.value ? { ...form.value } : null
+    }
+  })
+})
+
+useAiPageTools('system.post', postAiCapabilities.tools, postAiCapabilities.getContext, {
+  pageName: '岗位管理',
+  route: '/system/post'
+})
+
 getList()
 </script>
