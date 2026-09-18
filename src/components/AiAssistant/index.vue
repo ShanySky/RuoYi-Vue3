@@ -81,11 +81,63 @@
               <span class="context-label">{{ conversationId ? `会话 #${conversationId}` : '新会话' }}</span>
               <span class="context-route" :title="route.path">{{ route.path }}</span>
             </div>
-            <el-tooltip content="新建会话" placement="bottom">
-              <el-button data-testid="ai-assistant-new-conversation" aria-label="新会话" text circle size="small" :disabled="busy" @click="newConversation">
-                <el-icon><EditPen /></el-icon>
-              </el-button>
-            </el-tooltip>
+            <div class="conversation-actions">
+              <el-popover
+                v-if="aiStore.preferences.historyEntryVisible"
+                v-model:visible="historyPopoverVisible"
+                placement="bottom-end"
+                :width="340"
+                trigger="click"
+                popper-class="ai-history-popover"
+                @show="loadHistory"
+              >
+                <template #reference>
+                  <el-button data-testid="ai-assistant-history" aria-label="会话历史" text circle size="small" :disabled="busy">
+                    <el-icon><Clock /></el-icon>
+                  </el-button>
+                </template>
+                <div class="history-panel">
+                  <div class="history-header">
+                    <strong>我的会话</strong>
+                    <el-button link size="small" :loading="historyLoading" @click="loadHistory">刷新</el-button>
+                  </div>
+                  <el-input
+                    v-model="historyQuery"
+                    size="small"
+                    clearable
+                    placeholder="搜索会话标题"
+                    @keyup.enter="loadHistory"
+                    @clear="loadHistory"
+                  />
+                  <div v-if="historyLoading" class="history-empty">正在加载…</div>
+                  <div v-else-if="historyGroups.length === 0" class="history-empty">暂无历史会话</div>
+                  <div v-else class="history-groups">
+                    <section v-for="group in historyGroups" :key="group.label" class="history-group">
+                      <div class="history-group-label">{{ group.label }}</div>
+                      <article v-for="item in group.items" :key="item.conversationId" class="history-item">
+                        <button class="history-main" type="button" @click="restoreConversationFromHistory(item.conversationId)">
+                          <span class="history-title">{{ item.title || `会话 #${item.conversationId}` }}</span>
+                          <span class="history-time">{{ formatHistoryTime(item.updateTime || item.createTime) }}</span>
+                        </button>
+                        <div class="history-item-actions">
+                          <el-button link size="small" @click.stop="renameHistoryConversation(item)">重命名</el-button>
+                          <el-button link size="small" type="danger" @click.stop="archiveHistoryConversation(item)">归档</el-button>
+                        </div>
+                      </article>
+                    </section>
+                  </div>
+                </div>
+              </el-popover>
+              <el-tooltip content="新建会话" placement="bottom">
+                <el-button data-testid="ai-assistant-new-conversation" aria-label="新会话" text circle size="small" :disabled="busy" @click="newConversation">
+                  <el-icon><EditPen /></el-icon>
+                </el-button>
+              </el-tooltip>
+            </div>
+          </div>
+          <div v-if="restoreUndo" class="restore-undo-banner" data-testid="ai-restore-undo">
+            <span>已恢复历史会话</span>
+            <el-button link size="small" @click="undoRestore">撤销恢复</el-button>
           </div>
 
           <div ref="messagePane" data-testid="ai-assistant-messages" class="message-pane">
@@ -97,6 +149,9 @@
                 <span>查询当前页面数据</span>
                 <span>打开并填写表单</span>
               </div>
+              <el-button link size="small" class="restore-last-button" @click="restoreLastConversation()">
+                恢复上次会话
+              </el-button>
             </div>
 
             <template v-for="item in messages" :key="item.id">
@@ -204,14 +259,15 @@
 
 <script setup>
 import {
-  ChatDotRound, ChatLineRound, CircleCheck, Close, EditPen, FullScreen,
+  ChatDotRound, ChatLineRound, CircleCheck, Clock, Close, EditPen, FullScreen,
   MagicStick, ScaleToOriginal, Setting
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
 import {
-  cancelAiRun, cancelAiRunByClientKey, createAiConversation, sendAiTurn
+  archiveAiConversation, cancelAiRun, cancelAiRunByClientKey, createAiConversation,
+  getLastAiConversation, renameAiConversation, sendAiTurn
 } from '@/api/ai/chat'
 import {
   getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
@@ -261,6 +317,10 @@ const conversationId = computed({
 const messages = computed(() => aiStore.messages)
 const messagePane = ref(null)
 const sendShortcut = computed(() => aiStore.preferences.sendShortcut || 'enter')
+const historyQuery = ref('')
+const historyLoading = ref(false)
+const historyPopoverVisible = ref(false)
+const restoreUndo = ref(null)
 let runGeneration = 0
 let activeRunId = null
 let activeClientRunKey = null
@@ -268,6 +328,7 @@ let activeAbortController = null
 let conversationCreationPromise = null
 let escArmedAt = 0
 let escTimer = null
+let restoreUndoTimer = null
 let pendingConfirmationResolve = null
 
 function append(role, text) {
@@ -288,8 +349,11 @@ async function loadModels() {
 }
 
 async function openFloating() {
-  mode.value = 'floating'
   await loadModels()
+  let target = aiStore.preferences.assistantOpenMode || 'last'
+  if (target === 'last') target = localStorage.getItem('ai-last-assistant-mode') || 'floating'
+  if (target === 'dock' && window.innerWidth < 980) target = 'floating'
+  mode.value = target === 'dock' ? 'dock' : 'floating'
 }
 
 function closePanel() {
@@ -317,7 +381,131 @@ async function handleSettingsUpdated() {
   await Promise.all([loadModels(), aiStore.loadPreferences()])
 }
 
+function clearRestoreUndo() {
+  restoreUndo.value = null
+  if (restoreUndoTimer) {
+    clearTimeout(restoreUndoTimer)
+    restoreUndoTimer = null
+  }
+}
+
+function captureConversationSnapshot() {
+  return {
+    conversationId: conversationId.value,
+    draft: input.value,
+    modelId: modelId.value,
+    reasoningEffort: reasoningEffort.value,
+    messages: messages.value.map(item => ({ ...item }))
+  }
+}
+
+async function restoreConversationWithUndo(targetConversationId) {
+  if (!targetConversationId || targetConversationId === conversationId.value) return
+  const previous = captureConversationSnapshot()
+  await aiStore.restoreConversation(targetConversationId)
+  restoreUndo.value = previous
+  if (restoreUndoTimer) clearTimeout(restoreUndoTimer)
+  restoreUndoTimer = setTimeout(clearRestoreUndo, 10000)
+  historyPopoverVisible.value = false
+  nextTick(() => {
+    if (messagePane.value) messagePane.value.scrollTop = messagePane.value.scrollHeight
+  })
+}
+
+async function restoreLastConversation({ silent = false } = {}) {
+  try {
+    const res = await getLastAiConversation()
+    const last = res.data
+    if (!last?.conversationId) {
+      if (!silent) ElMessage.info('暂无可恢复的历史会话')
+      return
+    }
+    await restoreConversationWithUndo(last.conversationId)
+  } catch (error) {
+    if (!silent) ElMessage.error(error?.message || '恢复上次会话失败')
+  }
+}
+
+async function undoRestore() {
+  const snapshot = restoreUndo.value
+  if (!snapshot) return
+  clearRestoreUndo()
+  if (snapshot.conversationId) {
+    await aiStore.restoreConversation(snapshot.conversationId)
+    aiStore.setDraft(snapshot.draft)
+    return
+  }
+  aiStore.newConversation()
+  aiStore.messages = snapshot.messages || []
+  aiStore.modelId = snapshot.modelId
+  aiStore.reasoningEffort = snapshot.reasoningEffort || null
+  aiStore.setDraft(snapshot.draft)
+}
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    await aiStore.loadHistory(historyQuery.value)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function parseHistoryDate(value) {
+  if (!value) return null
+  const date = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatHistoryTime(value) {
+  const date = parseHistoryDate(value)
+  if (!date) return ''
+  return date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+const historyGroups = computed(() => {
+  const today = new Date()
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const startYesterday = startToday - 86400000
+  const groups = new Map()
+  for (const item of aiStore.history || []) {
+    const date = parseHistoryDate(item.updateTime || item.createTime)
+    const time = date?.getTime() || 0
+    const label = time >= startToday ? '今天' : (time >= startYesterday ? '昨天' : (date ? date.toLocaleDateString() : '更早'))
+    if (!groups.has(label)) groups.set(label, [])
+    groups.get(label).push(item)
+  }
+  return [...groups.entries()].map(([label, items]) => ({ label, items }))
+})
+
+async function restoreConversationFromHistory(id) {
+  await restoreConversationWithUndo(id)
+}
+
+async function renameHistoryConversation(item) {
+  const { value } = await ElMessageBox.prompt('请输入新的会话标题', '重命名会话', {
+    inputValue: item.title || '',
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValidator: value => !!String(value || '').trim() || '标题不能为空'
+  })
+  await renameAiConversation(item.conversationId, String(value).trim())
+  await loadHistory()
+}
+
+async function archiveHistoryConversation(item) {
+  await ElMessageBox.confirm('归档后仍保留历史数据，可由系统策略后续清理。确认归档？', '归档会话', {
+    confirmButtonText: '归档',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
+  await archiveAiConversation(item.conversationId)
+  if (item.conversationId === conversationId.value) aiStore.newConversation()
+  await loadHistory()
+}
+
 function newConversation() {
+  clearRestoreUndo()
   aiStore.newConversation()
 }
 
@@ -420,6 +608,7 @@ function cancelPendingConfirmation() {
 async function sendMessage() {
   const text = input.value.trim()
   if (!text) return
+  clearRestoreUndo()
   if (!modelId.value) {
     ElMessage.warning('请先配置并选择一个已启用模型')
     return
@@ -661,13 +850,21 @@ function startResize(event) {
 }
 
 watch([mode, dockWidth], emitDockState, { immediate: true })
+watch(mode, value => {
+  if (value === 'floating' || value === 'dock') localStorage.setItem('ai-last-assistant-mode', value)
+})
 onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown, true)
+  const hadSessionConversation = !!aiStore.conversationId
   await aiStore.initialize()
+  if (!hadSessionConversation && !aiStore.conversationId && aiStore.preferences.autoRestoreLastConversation) {
+    await restoreLastConversation({ silent: true })
+  }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown, true)
   resetEscArmed()
+  clearRestoreUndo()
   cancelPendingConfirmation()
   activeAbortController?.abort()
 })
@@ -782,6 +979,25 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
 .conversation-context { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.conversation-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.restore-undo-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 12px; border-bottom: 1px solid var(--el-border-color-lighter);
+  background: var(--el-color-primary-light-9); color: var(--el-text-color-regular); font-size: 11px;
+}
+.restore-last-button { margin-top: 8px; }
+:global(.ai-history-popover) { padding: 10px !important; }
+.history-panel { display: flex; flex-direction: column; gap: 8px; }
+.history-header { display: flex; align-items: center; justify-content: space-between; }
+.history-groups { max-height: 350px; overflow: auto; }
+.history-group + .history-group { margin-top: 9px; }
+.history-group-label { margin-bottom: 4px; color: var(--el-text-color-secondary); font-size: 10px; }
+.history-item { padding: 6px 0; border-top: 1px solid var(--el-border-color-lighter); }
+.history-main { width: 100%; border: 0; padding: 0; background: transparent; text-align: left; cursor: pointer; }
+.history-title { display: block; overflow: hidden; color: var(--el-text-color-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.history-time { display: block; margin-top: 2px; color: var(--el-text-color-secondary); font-size: 10px; }
+.history-item-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 2px; }
+.history-empty { padding: 20px 4px; text-align: center; color: var(--el-text-color-secondary); font-size: 11px; }
 .context-label { flex: 0 0 auto; color: var(--el-text-color-secondary); font-size: 11px; }
 .context-route {
   overflow: hidden;
