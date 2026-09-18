@@ -60,16 +60,16 @@ function modelRow(name) {
   return page.locator('.system-model-table .el-table__row').filter({ hasText: name }).first()
 }
 
-async function assistantPanel() {
-  const panel = page.locator('[data-testid="ai-assistant-panel"]')
+async function assistantPanel(targetPage = page) {
+  const panel = targetPage.locator('[data-testid="ai-assistant-panel"]')
   await panel.waitFor({ timeout: 15000 })
   return panel
 }
 
-async function sendByButton(text) {
-  const input = page.getByPlaceholder('告诉 AI 你想做什么…')
+async function sendByButton(text, targetPage = page) {
+  const input = targetPage.getByPlaceholder('告诉 AI 你想做什么…')
   await input.fill(text)
-  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await targetPage.getByRole('button', { name: '发送', exact: true }).click()
 }
 
 async function selectRemoteModel(dialog, name) {
@@ -124,7 +124,7 @@ try {
   await page.getByRole('button', { name: '测试模型加载', exact: true }).click()
   await page.getByText(/模型加载成功：发现 2 个远端模型/).waitFor({ timeout: 20000 })
 
-  const token = await getToken()
+  let token = await getToken()
   const beforeAdd = await apiJson(token, '/ai/config/models')
   assert.equal(beforeAdd.length, 0, 'Testing model load must not persist the remote catalog')
 
@@ -490,6 +490,140 @@ try {
   assert.equal(deleteRoleResponse.status, 200)
   const deleteRolePayload = await deleteRoleResponse.json()
   assert.equal(deleteRolePayload.code, 200)
+
+  console.log('20. Idle F5 restores the same conversation, history and unsent draft')
+  await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('G_HISTORY_RESTORE_TEST')
+  await page.getByText(/AI_OK:mock-secondary-model:low|AI_OK:mock-agent-model:high/).last().waitFor({ timeout: 30000 })
+  const historyConversationLabel = await page.locator('.context-label').innerText()
+  const historyConversationId = Number(historyConversationLabel.match(/#(\d+)/)?.[1])
+  assert.ok(historyConversationId, 'Expected a persisted conversation id for F5 restore')
+  const historyRows = await apiJson(token, '/ai/chat/conversations')
+  const historyConversation = historyRows.find(item => item.conversationId === historyConversationId)
+  assert.equal(historyConversation?.title, 'G_HISTORY_RESTORE_TEST', 'First user message should become the readable conversation title')
+
+  const f5Draft = 'F5 未发送草稿'
+  await page.getByPlaceholder('告诉 AI 你想做什么…').fill(f5Draft)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  await page.getByText('G_HISTORY_RESTORE_TEST', { exact: true }).waitFor({ timeout: 15000 })
+  assert.equal(await page.getByPlaceholder('告诉 AI 你想做什么…').inputValue(), f5Draft)
+  assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${historyConversationId}\\b`))
+
+  console.log('21. F5 during pending WRITE cancels the orphaned run and never persists the write')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('STEER_WRITE_OLD')
+  const refreshPendingWrite = page.getByTestId('ai-write-confirmation')
+  await refreshPendingWrite.waitFor({ timeout: 60000 })
+  const refreshConversationLabel = await page.locator('.context-label').innerText()
+  const refreshConversationId = Number(refreshConversationLabel.match(/#(\d+)/)?.[1])
+  assert.ok(refreshConversationId)
+  const beforeRefreshWrite = await getUser(token, 2)
+  assert.equal(beforeRefreshWrite.nickName, TEST_NICKNAME)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  await page.getByText('页面刷新后已安全终止上次未完成执行，可继续当前会话。', { exact: true })
+    .waitFor({ timeout: 15000 })
+  const afterRefreshWrite = await getUser(token, 2)
+  assert.equal(afterRefreshWrite.nickName, TEST_NICKNAME)
+  const refreshedDetail = await apiJson(token, `/ai/chat/conversations/${refreshConversationId}`)
+  assert.equal(refreshedDetail.activeRun, null)
+  assert.equal((refreshedDetail.pendingTools || []).length, 0)
+
+  console.log('22. History entry is opt-in; restore and undo preserve the previous conversation state')
+  assert.equal(await page.getByTestId('ai-assistant-history').count(), 0, 'History entry should be hidden by default')
+  await page.getByTestId('ai-assistant-settings').click()
+  const settings = page.locator('.quick-settings')
+  const historyPreferenceRow = settings.locator('.preference-row').filter({ hasText: '会话历史入口' })
+  await historyPreferenceRow.locator('.el-switch').click()
+  await page.getByTestId('ai-assistant-settings').click()
+  await page.getByTestId('ai-assistant-history').waitFor({ timeout: 10000 })
+
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('G_SECOND_CONVERSATION')
+  await page.getByText(/AI_OK:/).last().waitFor({ timeout: 30000 })
+  const secondConversationLabel = await page.locator('.context-label').innerText()
+  const secondConversationId = Number(secondConversationLabel.match(/#(\d+)/)?.[1])
+  assert.ok(secondConversationId && secondConversationId !== historyConversationId)
+
+  await page.getByTestId('ai-assistant-history').click()
+  const historyPopover = page.locator('.ai-history-popover:visible')
+  await historyPopover.getByText('我的会话', { exact: true }).waitFor()
+  await historyPopover.getByPlaceholder('搜索会话标题').fill('G_HISTORY_RESTORE_TEST')
+  await historyPopover.getByPlaceholder('搜索会话标题').press('Enter')
+  const firstHistoryItem = historyPopover.locator('.history-item').filter({ hasText: 'G_HISTORY_RESTORE_TEST' }).first()
+  await firstHistoryItem.waitFor({ timeout: 10000 })
+  await firstHistoryItem.locator('.history-main').click()
+  await page.getByTestId('ai-restore-undo').waitFor()
+  assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${historyConversationId}\\b`))
+  await page.getByTestId('ai-restore-undo').getByRole('button', { name: '撤销恢复', exact: true }).click()
+  assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${secondConversationId}\\b`))
+
+  await page.getByTestId('ai-assistant-history').click()
+  const renamePopover = page.locator('.ai-history-popover:visible')
+  await renamePopover.getByPlaceholder('搜索会话标题').fill('G_SECOND_CONVERSATION')
+  await renamePopover.getByPlaceholder('搜索会话标题').press('Enter')
+  const secondHistoryItem = renamePopover.locator('.history-item').filter({ hasText: 'G_SECOND_CONVERSATION' }).first()
+  await secondHistoryItem.getByRole('button', { name: '重命名', exact: true }).click()
+  const renameBox = page.locator('.el-message-box:visible')
+  await renameBox.locator('input').fill('G_RENAMED_CONVERSATION')
+  await renameBox.getByRole('button', { name: '保存', exact: true }).click()
+  await page.waitForTimeout(350)
+  const renamedRows = await apiJson(token, '/ai/chat/conversations', 'GET')
+  assert.equal(renamedRows.find(item => item.conversationId === secondConversationId)?.title, 'G_RENAMED_CONVERSATION')
+  await page.keyboard.press('Escape').catch(() => {})
+
+  console.log('23. Active run is cancelled on logout; history survives re-login and optional auto-restore works')
+  await apiJson(token, '/ai/preferences', 'PUT', {
+    historyEntryVisible: true,
+    autoRestoreLastConversation: true,
+    assistantOpenMode: 'floating'
+  })
+  await page.getByPlaceholder('告诉 AI 你想做什么…').fill('SLOW_STOP_TEST')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByRole('button', { name: '停止', exact: true }).waitFor({ timeout: 10000 })
+
+  await page.locator('.avatar-container').hover()
+  await page.getByText('退出登录', { exact: true }).click()
+  const logoutConfirm = page.locator('.el-message-box:visible')
+  await logoutConfirm.getByRole('button', { name: '确定', exact: true }).click()
+  await page.waitForURL(url => url.pathname.includes('/login'), { timeout: 30000 })
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('ruoyi-ai-active-conversation')), null)
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('ruoyi-ai-draft')), null)
+
+  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 30000 })
+  token = await getToken()
+  await page.waitForTimeout(800)
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${secondConversationId}\\b`))
+  await page.waitForTimeout(4500)
+  assert.equal(await page.getByText('SLOW_STOP_DONE', { exact: true }).count(), 0, 'Logout must cancel the active run and discard its late response')
+  await page.getByTestId('ai-assistant-history').waitFor()
+
+  console.log('24. Different tabs keep independent activeConversationId values')
+  await apiJson(token, '/ai/preferences', 'PUT', { autoRestoreLastConversation: false })
+  const firstTabConversationId = secondConversationId
+  const page2 = await context.newPage()
+  await page2.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await page2.locator('.ai-fab').click()
+  await assistantPanel(page2)
+  assert.equal((await page2.locator('.context-label').innerText()).trim(), '新会话')
+  await sendByButton('G_TAB_TWO', page2)
+  await page2.getByText(/AI_OK:/).last().waitFor({ timeout: 30000 })
+  const tabTwoLabel = await page2.locator('.context-label').innerText()
+  const tabTwoConversationId = Number(tabTwoLabel.match(/#(\d+)/)?.[1])
+  assert.ok(tabTwoConversationId && tabTwoConversationId !== firstTabConversationId)
+  assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${firstTabConversationId}\\b`))
+  assert.equal(Number(await page.evaluate(() => sessionStorage.getItem('ruoyi-ai-active-conversation'))), firstTabConversationId)
+  assert.equal(Number(await page2.evaluate(() => sessionStorage.getItem('ruoyi-ai-active-conversation'))), tabTwoConversationId)
+  await page2.close()
 
   await screenshot('ai-agent-model-selection-e2e-success')
   console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
