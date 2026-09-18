@@ -15,6 +15,8 @@ function normalizeFields(fields = []) {
     validationRules: field.validationRules || field.rules || undefined,
     itemType: field.itemType || undefined,
     inputSchema: field.inputSchema || undefined,
+    addOnly: !!field.addOnly,
+    editOnly: !!field.editOnly,
     description: field.description || undefined
   }))
 }
@@ -57,6 +59,8 @@ function fieldSnapshot(field) {
     options: resolvedOptions(field),
     validationRules: serializeValidationRules(field.validationRules),
     itemType: field.itemType,
+    addOnly: field.addOnly,
+    editOnly: field.editOnly,
     description: field.description
   }
 }
@@ -77,6 +81,7 @@ function fieldInputSchema(field) {
     if (schema.type === 'string' && rule?.min != null && schema.minLength == null) schema.minLength = rule.min
     if (schema.type === 'string' && rule?.max != null && schema.maxLength == null) schema.maxLength = rule.max
     if (schema.type === 'string' && rule?.pattern && schema.pattern == null) schema.pattern = rule.pattern
+    if (schema.type === 'string' && rule?.type === 'email' && schema.format == null) schema.format = 'email'
   }
   if (schema.type === 'array' && !schema.items) {
     schema.items = { type: field.itemType || 'string' }
@@ -164,15 +169,17 @@ export function createAiCrudPageCapabilities(options) {
 
     if (form.setFields) {
       const editableFields = formFields.filter(item => item.editable)
+      const addFields = editableFields.filter(item => !item.editOnly)
+      const editFields = editableFields.filter(item => !item.addOnly)
       if (form.openAdd) {
         tools.push({
           name: `${prefix}_add_set_fields`,
           requiredPermission: form.addPermission,
           description: `填写当前已打开的${options.pageName || '页面'}新增表单字段，但不保存`,
           inputSchema: () => objectSchema(
-            Object.fromEntries(editableFields.map(field => [field.key, fieldInputSchema(field)]))
+            Object.fromEntries(addFields.map(field => [field.key, fieldInputSchema(field)]))
           ),
-          handler: args => form.setFields(pickDeclaredArgs(args, editableFields), 'add')
+          handler: args => form.setFields(pickDeclaredArgs(args, addFields), 'add')
         })
       }
       if (form.openEdit) {
@@ -181,9 +188,9 @@ export function createAiCrudPageCapabilities(options) {
           requiredPermission: form.editPermission,
           description: `修改当前已打开的${options.pageName || '页面'}编辑表单字段，但不保存`,
           inputSchema: () => objectSchema(
-            Object.fromEntries(editableFields.map(field => [field.key, fieldInputSchema(field)]))
+            Object.fromEntries(editFields.map(field => [field.key, fieldInputSchema(field)]))
           ),
-          handler: args => form.setFields(pickDeclaredArgs(args, editableFields), 'edit')
+          handler: args => form.setFields(pickDeclaredArgs(args, editFields), 'edit')
         })
       }
     }
