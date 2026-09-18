@@ -1,5 +1,5 @@
 import { getAiPreferences, saveAiPreferences } from '@/api/ai/preferences'
-import { getAiConversation, listAiConversations } from '@/api/ai/chat'
+import { cancelAiRun, getAiConversation, listAiConversations } from '@/api/ai/chat'
 import { listEnabledAiModels } from '@/api/ai/config'
 
 const ACTIVE_KEY = 'ruoyi-ai-active-conversation'
@@ -67,9 +67,10 @@ const useAiStore = defineStore('ai-assistant', {
   },
   actions: {
     async initialize() {
-      await Promise.all([this.loadPreferences(), this.loadModels()])
+      await this.loadPreferences()
+      await this.loadModels()
       if (this.conversationId) {
-        await this.restoreConversation(this.conversationId, { silent: true }).catch(() => {
+        await this.restoreConversation(this.conversationId, { silent: true, safeAfterReload: true }).catch(() => {
           this.newConversation()
         })
       }
@@ -130,7 +131,7 @@ const useAiStore = defineStore('ai-assistant', {
         ? (this.preferences.defaultReasoningEffort || preferred?.defaultReasoningEffort || null)
         : (preferred?.defaultReasoningEffort || null)
     },
-    async restoreConversation(conversationId, { silent = false } = {}) {
+    async restoreConversation(conversationId, { silent = false, safeAfterReload = false } = {}) {
       this.restoring = true
       try {
         const res = await getAiConversation(conversationId)
@@ -144,6 +145,18 @@ const useAiStore = defineStore('ai-assistant', {
         this.checkpoint = data.checkpoint || null
         this.modelId = conversation.modelId || this.modelId
         this.reasoningEffort = conversation.reasoningEffort || null
+
+        const activeStatus = String(this.activeRun?.status || '')
+        if (safeAfterReload && this.activeRun?.runId && ['RUNNING', 'WAITING_TOOL', 'CANCEL_REQUESTED'].includes(activeStatus)) {
+          try {
+            await cancelAiRun(this.activeRun.runId, 'CLIENT_RELOAD')
+            this.activeRun = null
+            this.pendingTools = []
+            this.append('tool', '页面刷新后已安全终止上次未完成执行，可继续当前会话。')
+          } catch (error) {
+            if (!silent) throw error
+          }
+        }
         return data
       } finally {
         this.restoring = false

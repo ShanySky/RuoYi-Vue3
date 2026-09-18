@@ -210,7 +210,6 @@ import {
 import { ElMessage } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
-import { listEnabledAiModels } from '@/api/ai/config'
 import {
   cancelAiRun, cancelAiRunByClientKey, createAiConversation, sendAiTurn
 } from '@/api/ai/chat'
@@ -242,15 +241,26 @@ const escArmed = ref(false)
 const panelRef = ref(null)
 const modelPickerRef = ref(null)
 const workingText = ref('AI 正在处理…')
-const input = ref('')
-const models = ref([])
-const modelId = ref(undefined)
-const reasoningEffort = ref(null)
-const conversationId = ref(undefined)
-const messages = ref([])
+const input = computed({
+  get: () => aiStore.draft,
+  set: value => aiStore.setDraft(value)
+})
+const models = computed(() => aiStore.models)
+const modelId = computed({
+  get: () => aiStore.modelId,
+  set: value => { aiStore.modelId = value }
+})
+const reasoningEffort = computed({
+  get: () => aiStore.reasoningEffort,
+  set: value => { aiStore.reasoningEffort = value || null }
+})
+const conversationId = computed({
+  get: () => aiStore.conversationId,
+  set: value => aiStore.setConversationId(value)
+})
+const messages = computed(() => aiStore.messages)
 const messagePane = ref(null)
-const sendShortcut = ref(localStorage.getItem('ai-send-shortcut') === 'ctrl-enter' ? 'ctrl-enter' : 'enter')
-let seq = 0
+const sendShortcut = computed(() => aiStore.preferences.sendShortcut || 'enter')
 let runGeneration = 0
 let activeRunId = null
 let activeClientRunKey = null
@@ -261,7 +271,7 @@ let escTimer = null
 let pendingConfirmationResolve = null
 
 function append(role, text) {
-  messages.value.push({ id: ++seq, role, text: String(text ?? '') })
+  aiStore.append(role, text)
   nextTick(() => {
     if (messagePane.value) messagePane.value.scrollTop = messagePane.value.scrollHeight
   })
@@ -269,18 +279,11 @@ function append(role, text) {
 
 async function loadModels() {
   try {
-    const res = await listEnabledAiModels()
-    models.value = res.data || []
-    const current = models.value.find(item => item.modelId === modelId.value)
-    if (!current) {
-      const preferred = models.value.find(item => item.defaultModel === '0') || models.value[0]
-      modelId.value = preferred?.modelId
-      reasoningEffort.value = preferred?.defaultReasoningEffort || null
-    }
+    await aiStore.loadModels()
   } catch {
-    models.value = []
-    modelId.value = undefined
-    reasoningEffort.value = null
+    aiStore.models = []
+    aiStore.modelId = undefined
+    aiStore.reasoningEffort = null
   }
 }
 
@@ -315,16 +318,16 @@ async function handleSettingsUpdated() {
 }
 
 function newConversation() {
-  conversationId.value = undefined
-  messages.value = []
-  const preferred = models.value.find(item => item.defaultModel === '0') || models.value[0]
-  modelId.value = preferred?.modelId
-  reasoningEffort.value = preferred?.defaultReasoningEffort || null
+  aiStore.newConversation()
 }
 
-function setSendShortcut(value) {
-  sendShortcut.value = value
+async function setSendShortcut(value) {
   localStorage.setItem('ai-send-shortcut', value)
+  try {
+    await aiStore.savePreferences({ sendShortcut: value })
+  } catch (error) {
+    ElMessage.error(error?.message || '发送快捷键保存失败')
+  }
 }
 
 function handleComposerKeydown(event) {
@@ -660,7 +663,7 @@ function startResize(event) {
 watch([mode, dockWidth], emitDockState, { immediate: true })
 onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown, true)
-  await Promise.all([loadModels(), aiStore.loadPreferences()])
+  await aiStore.initialize()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown, true)
