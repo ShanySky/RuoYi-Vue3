@@ -322,7 +322,7 @@ try {
   const currentQuickSettings = page.locator('.quick-settings')
   await currentQuickSettings.getByRole('button', { name: '大', exact: true }).click()
   await page.getByTestId('ai-assistant-settings').click()
-  const fontInput = page.getByTestId('ai-assistant-input').locator('textarea')
+  const fontInput = page.getByTestId('ai-assistant-input')
   await fontInput.waitFor()
   assert.equal(await fontInput.evaluate(el => getComputedStyle(el).fontSize), '14px')
 
@@ -333,7 +333,7 @@ try {
   await page.reload({ waitUntil: 'networkidle' })
   await page.locator('.ai-fab').click()
   await assistantPanel()
-  const reloadedFontInput = page.getByTestId('ai-assistant-input').locator('textarea')
+  const reloadedFontInput = page.getByTestId('ai-assistant-input')
   await reloadedFontInput.waitFor()
   assert.equal(await reloadedFontInput.evaluate(el => getComputedStyle(el).fontSize), '14px')
   await page.getByTestId('ai-assistant-settings').click()
