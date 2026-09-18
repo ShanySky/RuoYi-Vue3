@@ -1,6 +1,6 @@
 <template>
   <div class="quick-settings">
-    <el-scrollbar>
+    <el-scrollbar v-if="initialized">
       <div class="settings-section">
         <div class="section-title">AI 服务</div>
         <el-form label-position="top" size="small">
@@ -84,6 +84,7 @@
         </div>
       </div>
     </el-scrollbar>
+    <div v-else class="initial-loading">正在加载 AI 配置…</div>
   </div>
 </template>
 
@@ -107,6 +108,7 @@ const saving = ref(false)
 const testing = ref(false)
 const syncing = ref(false)
 const modelLoading = ref(false)
+const initialized = ref(false)
 
 const providerDirty = computed(() => {
   if (!provider.providerId) return true
@@ -165,7 +167,12 @@ async function loadModels() {
 }
 
 async function reload() {
-  await Promise.all([loadProvider(), loadModels()])
+  initialized.value = false
+  try {
+    await Promise.all([loadProvider(), loadModels()])
+  } finally {
+    initialized.value = true
+  }
 }
 
 async function saveProvider() {
@@ -246,6 +253,7 @@ defineExpose({ reload })
 
 <style scoped>
 .quick-settings { height: 100%; min-height: 0; }
+.initial-loading { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--el-text-color-secondary); font-size: 13px; }
 .settings-section { padding: 2px 4px 8px; }
 .section-title { font-weight: 600; font-size: 14px; }
 .section-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
