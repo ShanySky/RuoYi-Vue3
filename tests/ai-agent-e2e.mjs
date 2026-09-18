@@ -596,6 +596,7 @@ try {
   await page.getByTestId('ai-restore-undo').waitFor()
   assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${historyConversationId}\\b`))
   await page.getByTestId('ai-restore-undo').getByRole('button', { name: '撤销恢复', exact: true }).click()
+  await page.locator('.context-label').filter({ hasText: `会话 #${secondConversationId}` }).waitFor({ timeout: 10000 })
   assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${secondConversationId}\\b`))
 
   await page.getByTestId('ai-assistant-history').click()
