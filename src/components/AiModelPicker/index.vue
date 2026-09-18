@@ -69,6 +69,9 @@
 </template>
 
 <script setup>
+import { refDebounced } from '@vueuse/core'
+import { filterAiModelsByQuery } from '@/ai/modelSearch'
+
 const props = defineProps({
   models: { type: Array, default: () => [] },
   modelValue: { type: [Number, String], default: undefined },
@@ -79,6 +82,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'update:reasoningEffort'])
 const visible = ref(false)
 const query = ref('')
+const debouncedQuery = refDebounced(query, 180)
 const advancedModel = ref(null)
 
 const selectedModel = computed(() => props.models.find(item => item.modelId === props.modelValue))
@@ -104,18 +108,8 @@ function remember(modelId) {
 
 const visibleModels = computed(() => {
   const list = [...props.models]
-  const q = query.value.trim().toLowerCase()
-  if (q) {
-    return list
-      .map(model => {
-        const value = `${modelLabel(model)} ${model.modelCode || ''}`.toLowerCase()
-        const prefix = value.startsWith(q) || String(model.modelCode || '').toLowerCase().startsWith(q)
-        return { model, rank: prefix ? 0 : value.includes(q) ? 1 : 9 }
-      })
-      .filter(item => item.rank < 9)
-      .sort((a, b) => a.rank - b.rank || modelLabel(a.model).localeCompare(modelLabel(b.model)))
-      .slice(0, 20)
-      .map(item => item.model)
+  if (debouncedQuery.value.trim()) {
+    return filterAiModelsByQuery(list, debouncedQuery.value, 20)
   }
 
   const ids = []
