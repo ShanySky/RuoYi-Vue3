@@ -27,6 +27,18 @@
             </el-button>
           </div>
         </div>
+
+        <div class="preference-row preference-row-separated">
+          <div>
+            <div class="preference-label">双击 ESC 中断</div>
+            <div class="preference-tip">仅 AI 窗口内有焦点时生效；700ms 内连续两次。</div>
+          </div>
+          <el-switch
+            :model-value="preferences.doubleEscEnabled"
+            size="small"
+            @change="changeDoubleEsc"
+          />
+        </div>
       </section>
 
       <div class="section-divider" />
@@ -291,6 +303,11 @@ async function changeChatFontSize(value) {
   emit('updated')
 }
 
+async function changeDoubleEsc(value) {
+  await aiStore.savePreferences({ doubleEscEnabled: !!value })
+  emit('updated')
+}
+
 async function saveProvider() {
   if (!form.baseUrl.trim()) {
     ElMessage.warning('请填写 Base URL')
@@ -427,6 +444,7 @@ defineExpose({ reload })
 .settings-scroll { height: 100%; }
 .settings-section { padding: 4px 4px 10px; }
 .preference-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preference-row-separated { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--el-border-color-lighter); }
 .preference-label { color: var(--el-text-color-primary); font-size: 12px; }
 .preference-tip { margin-top: 3px; color: var(--el-text-color-secondary); font-size: 10px; line-height: 1.5; }
 .font-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
