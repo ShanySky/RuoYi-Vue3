@@ -562,16 +562,37 @@ function handleDataScope(row) {
   title.value = "分配数据权限"
 }
 
+async function openDataScopeForAi(roleId) {
+  reset()
+  const [deptTree, response] = await Promise.all([getDeptTree(roleId), getRole(roleId)])
+  form.value = response.data
+  openDataScope.value = true
+  title.value = "分配数据权限"
+  await nextTick()
+  deptRef.value?.setCheckedKeys?.(deptTree.checkedKeys || [])
+  return {
+    roleId: form.value.roleId,
+    roleName: form.value.roleName,
+    dataScope: form.value.dataScope,
+    deptCheckStrictly: form.value.deptCheckStrictly,
+    deptIds: getDeptAllCheckedKeys()
+  }
+}
+
+async function submitDataScopeCore() {
+  if (form.value.roleId == undefined) throw new Error("请先打开角色数据权限")
+  form.value.deptIds = getDeptAllCheckedKeys()
+  await dataScope(form.value)
+  proxy.$modal.msgSuccess("修改成功")
+  const result = { roleId: form.value.roleId, dataScope: form.value.dataScope, deptIds: [...form.value.deptIds] }
+  openDataScope.value = false
+  await getList()
+  return result
+}
+
 /** 提交按钮（数据权限） */
 function submitDataScope() {
-  if (form.value.roleId != undefined) {
-    form.value.deptIds = getDeptAllCheckedKeys()
-    dataScope(form.value).then(() => {
-      proxy.$modal.msgSuccess("修改成功")
-      openDataScope.value = false
-      getList()
-    })
-  }
+  submitDataScopeCore().catch(() => {})
 }
 
 /** 取消按钮（数据权限）*/
@@ -639,6 +660,41 @@ const roleAiCapabilities = createAiCrudPageCapabilities({
     submit: submitFormCore
   },
   actions: [
+    {
+      suffix: 'data_scope_open',
+      permission: 'system:role:edit',
+      label: '打开角色数据权限',
+      inputSchema: { type: 'object', properties: { roleId: { type: 'integer' } }, required: ['roleId'], additionalProperties: false },
+      handler: ({ roleId }) => openDataScopeForAi(roleId)
+    },
+    {
+      suffix: 'data_scope_set_fields',
+      permission: 'system:role:edit',
+      label: '填写角色数据权限但不保存',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          dataScope: { type: 'string', enum: ['1', '2', '3', '4', '5'] },
+          deptCheckStrictly: { type: 'boolean' },
+          deptIds: { type: 'array', items: { type: 'integer' } }
+        },
+        additionalProperties: false
+      },
+      handler: async args => {
+        if (!openDataScope.value || form.value.roleId == undefined) throw new Error('请先打开角色数据权限')
+        if (Object.prototype.hasOwnProperty.call(args, 'dataScope')) form.value.dataScope = args.dataScope
+        if (Object.prototype.hasOwnProperty.call(args, 'deptCheckStrictly')) form.value.deptCheckStrictly = !!args.deptCheckStrictly
+        await nextTick()
+        if (Array.isArray(args.deptIds)) deptRef.value?.setCheckedKeys?.(args.deptIds)
+        return { saved: false, roleId: form.value.roleId, dataScope: form.value.dataScope, deptCheckStrictly: form.value.deptCheckStrictly, deptIds: getDeptAllCheckedKeys() }
+      }
+    },
+    {
+      suffix: 'data_scope_submit',
+      permission: 'system:role:edit',
+      label: '提交角色数据权限',
+      handler: submitDataScopeCore
+    },
     {
       suffix: 'change_status',
       permission: 'system:role:edit',
