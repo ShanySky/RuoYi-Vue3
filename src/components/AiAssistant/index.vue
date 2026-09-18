@@ -522,7 +522,7 @@ function buildRequest(extra) {
 
 async function driveTurn(extra, generation, signal) {
   let payload = buildRequest(extra)
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 16; i++) {
     const res = await sendAiTurn(payload, { signal })
     if (generation !== runGeneration) return
 
