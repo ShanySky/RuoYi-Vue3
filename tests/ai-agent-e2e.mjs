@@ -240,8 +240,12 @@ try {
   const picker = page.locator('.ai-model-picker-popper:visible')
   const pickerSearch = picker.getByPlaceholder('输入模型名称，如 gpt、5.6、sol')
   await pickerSearch.fill('secondary')
-  await picker.getByText('mock-secondary-model', { exact: true }).waitFor()
-  await picker.getByRole('button', { name: /档位/ }).click()
+  await page.waitForTimeout(250)
+  const secondaryRow = picker.locator('.model-row').filter({ hasText: 'mock-secondary-model' }).first()
+  await secondaryRow.waitFor()
+  assert.equal(await picker.locator('.model-row').filter({ hasText: 'mock-agent-model' }).count(), 0,
+    'Debounced autocomplete should filter out non-matching models')
+  await secondaryRow.getByRole('button', { name: /档位/ }).click()
   await picker.getByRole('button', { name: 'Low', exact: true }).click()
 
   await sendByButton('同会话切换模型测试')
