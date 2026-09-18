@@ -1,5 +1,5 @@
 import { getAiPreferences, saveAiPreferences } from '@/api/ai/preferences'
-import { cancelAiRun, cancelAiRunByClientKey, getAiConversation, listAiConversations } from '@/api/ai/chat'
+import { cancelAiRun, cancelAiRunByClientKey, cancelAllAiRuns, getAiConversation, listAiConversations } from '@/api/ai/chat'
 import { listEnabledAiModels } from '@/api/ai/config'
 
 const ACTIVE_KEY = 'ruoyi-ai-active-conversation'
@@ -171,13 +171,16 @@ const useAiStore = defineStore('ai-assistant', {
     },
     async prepareLogout() {
       try {
-        if (this.activeRun?.runId) {
-          await cancelAiRun(this.activeRun.runId, 'USER_LOGOUT')
-        } else if (this.liveClientRunKey) {
-          await cancelAiRunByClientKey(this.liveClientRunKey, 'USER_LOGOUT')
-        }
+        await cancelAllAiRuns('USER_LOGOUT')
       } catch (error) {
-        console.warn('AI active run cancel before logout failed', error)
+        console.warn('AI active runs cancel before logout failed', error)
+        try {
+          if (this.activeRun?.runId) {
+            await cancelAiRun(this.activeRun.runId, 'USER_LOGOUT')
+          } else if (this.liveClientRunKey) {
+            await cancelAiRunByClientKey(this.liveClientRunKey, 'USER_LOGOUT')
+          }
+        } catch {}
       } finally {
         this.setConversationId(undefined)
         this.setDraft('')
