@@ -582,8 +582,8 @@ try {
   assert.equal(refreshedDetail.activeRun, null)
   assert.equal((refreshedDetail.pendingTools || []).length, 0)
 
-  await sendByButton('PAGE_INSTANCE_REFRESH_TEST')
-  await page.getByText(/AI_OK:/).last().waitFor({ timeout: 30000 })
+  await sendByButton('STEER_NEW')
+  await page.getByText('STEER_NEW_OK', { exact: true }).last().waitFor({ timeout: 30000 })
   assert.ok(userPageTurnRuntimes.length >= 2, 'Expected a new turn after reload to expose the refreshed page capability instance')
   const postRefreshPageInstanceId = userPageTurnRuntimes.at(-1)?.pageInstanceId
   assert.ok(postRefreshPageInstanceId)
