@@ -56,3 +56,27 @@ export function suggestAiModels(models, preferredIds = [], limit = 8) {
   list.forEach(add)
   return result.slice(0, limit)
 }
+
+
+export function mergeDiscoveredAiModels(models, discoveredCodes) {
+  const result = [...(models || [])]
+  const knownCodes = new Set(result.map(model => String(model?.modelCode || '')))
+
+  for (const rawCode of discoveredCodes || []) {
+    const code = String(rawCode || '').trim()
+    if (!code || knownCodes.has(code)) continue
+    knownCodes.add(code)
+    result.push({
+      modelId: `discovered:${code}`,
+      modelCode: code,
+      displayName: code,
+      enabled: '1',
+      defaultModel: '1',
+      toolCapability: 'UNKNOWN',
+      reasoningCapability: 'UNKNOWN',
+      discoveredOnly: true
+    })
+  }
+
+  return result
+}
