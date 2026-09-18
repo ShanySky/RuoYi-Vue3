@@ -317,5 +317,108 @@ function handleRefreshCache() {
   })
 }
 
+const configAiCapabilities = createAiCrudPageCapabilities({
+  pageName: '参数设置',
+  toolPrefix: 'page_system_config',
+  queryFields: [
+    { key: 'configName', label: '参数名称' },
+    { key: 'configKey', label: '参数键名' },
+    { key: 'configType', label: '系统内置', description: 'Y是，N否' },
+    { key: 'dateRange', label: '创建时间范围', type: 'array' },
+    { key: 'pageNum', label: '页码', type: 'integer' },
+    { key: 'pageSize', label: '每页数量', type: 'integer' }
+  ],
+  formFields: [
+    { key: 'configName', label: '参数名称', required: true },
+    { key: 'configKey', label: '参数键名', required: true },
+    { key: 'configValue', label: '参数键值', required: true },
+    { key: 'configType', label: '系统内置', description: 'Y是，N否' },
+    { key: 'remark', label: '备注' }
+  ],
+  query: {
+    permission: 'system:config:list',
+    apply: async args => {
+      for (const key of ['configName', 'configKey', 'configType', 'pageNum', 'pageSize']) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+      }
+      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+    },
+    run: getList,
+    reset: async () => resetQuery()
+  },
+  form: {
+    addPermission: 'system:config:add',
+    editPermission: 'system:config:edit',
+    recordIdKey: 'configId',
+    recordIdLabel: '参数ID',
+    openAdd: async () => { handleAdd(); return form.value },
+    openEdit: configId => handleUpdate({ configId }),
+    snapshot: () => ({ ...form.value }),
+    setFields: async args => {
+      const allowed = ['configName', 'configKey', 'configValue', 'configType', 'remark']
+      const changedFields = []
+      for (const key of allowed) {
+        if (Object.prototype.hasOwnProperty.call(args, key)) {
+          form.value[key] = args[key]
+          changedFields.push(key)
+        }
+      }
+      await nextTick()
+      return { changedFields, saved: false, form: { ...form.value } }
+    },
+    submit: () => submitFormCore()
+  },
+  actions: [
+    {
+      suffix: 'delete',
+      permission: 'system:config:remove',
+      label: '删除参数',
+      inputSchema: { type: 'object', properties: { configIds: { type: 'array', items: { type: 'integer' } } }, required: ['configIds'], additionalProperties: false },
+      handler: async args => {
+        const values = Array.isArray(args.configIds) ? args.configIds : []
+        if (!values.length) throw new Error('没有可删除的参数ID')
+        await delConfig(values.join(','))
+        await getList()
+        return { deletedConfigIds: values }
+      }
+    },
+    {
+      suffix: 'export',
+      permission: 'system:config:export',
+      label: '按当前查询条件导出参数',
+      handler: async () => {
+        handleExport()
+        return { started: true, query: { ...queryParams.value, dateRange: [...dateRange.value] } }
+      }
+    },
+    {
+      suffix: 'refresh_cache',
+      permission: 'system:config:remove',
+      label: '刷新系统参数缓存',
+      handler: async () => {
+        await refreshCache()
+        return { refreshed: true }
+      }
+    }
+  ],
+  getRows: () => configList.value.slice(0, 50).map(item => ({ ...item })),
+  getTotal: () => total.value,
+  getSelectedIds: () => [...ids.value],
+  getContext: () => ({
+    query: { ...queryParams.value, dateRange: [...dateRange.value] },
+    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+    form: {
+      open: open.value,
+      mode: open.value ? (form.value.configId == undefined ? 'add' : 'edit') : null,
+      value: open.value ? { ...form.value } : null
+    }
+  })
+})
+
+useAiPageTools('system.config', configAiCapabilities.tools, configAiCapabilities.getContext, {
+  pageName: '参数设置',
+  route: '/system/config'
+})
+
 getList()
 </script>
