@@ -241,7 +241,7 @@ function reasoningOptions(model) {
 }
 
 function effortLabel(value) {
-  const labels = { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh' }
+  const labels = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高' }
   return labels[value] || value
 }
 
