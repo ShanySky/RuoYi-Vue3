@@ -152,7 +152,7 @@ try {
 
   const reasoningSelect = primaryRow.locator('.reasoning-select')
   await reasoningSelect.click()
-  await page.locator('.el-select-dropdown:visible').getByText('High', { exact: true }).click()
+  await page.locator('.el-select-dropdown:visible').getByText('高', { exact: true }).click()
   await page.getByText('默认思考档位已更新', { exact: true }).waitFor({ timeout: 10000 })
 
   console.log('5. Single-model test connection uses a short toast and does not expand the row')
@@ -264,7 +264,7 @@ try {
   const secondaryRow = picker.locator('.model-row').filter({ hasText: 'mock-secondary-model' }).first()
   await secondaryRow.waitFor()
   await secondaryRow.getByRole('button', { name: /档位/ }).click()
-  await picker.getByRole('button', { name: 'Low', exact: true }).click()
+  await picker.getByRole('button', { name: '低', exact: true }).click()
 
   await sendByButton('同会话切换模型测试')
   await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).waitFor({ timeout: 30000 })
