@@ -472,6 +472,28 @@ try {
   assert.equal((stopCompactionAudit.checkpoints || []).length, 0,
     'A cancelled in-flight compaction must not persist a partial/orphan Checkpoint')
 
+  console.log('14c. F5 during compaction cancels the old Run with CLIENT_RELOAD and restores the conversation safely')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await compactionComposer.fill('UI_COMPACT_RELOAD_ONE ' + 'r'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('AI_OK:mock-secondary-model:low', { exact: true }).last().waitFor({ timeout: 30000 })
+  await compactionComposer.fill('UI_COMPACT_RELOAD_TWO ' + 'q'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('正在整理较早的会话上下文…', { exact: true }).waitFor({ timeout: 15000 })
+  const reloadCompactionLabel = await page.locator('.context-label').innerText()
+  const reloadCompactionConversationId = Number(reloadCompactionLabel.match(/#(\d+)/)?.[1])
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('.ai-fab').click()
+  await assistantPanel()
+  await page.getByText('页面刷新后已安全终止上次未完成执行，可继续当前会话。', { exact: true })
+    .waitFor({ timeout: 15000 })
+  const reloadCompactionAudit = await apiJson(token, `/ai/admin/audit/${reloadCompactionConversationId}`)
+  assert.ok((reloadCompactionAudit.runs || []).some(run =>
+    run.status === 'CANCELLED' && run.cancelReason === 'CLIENT_RELOAD'),
+    'F5 during COMPACTING must cancel the old Run with CLIENT_RELOAD')
+  assert.equal((reloadCompactionAudit.checkpoints || []).length, 0,
+    'Reload-cancelled compaction must not persist an orphan Checkpoint')
+
   await apiJson(token, `/ai/config/models/${secondaryModel.modelId}/runtime-settings`, 'PUT', {
     contextWindowTokens: 65536,
     autoCompaction: true,
