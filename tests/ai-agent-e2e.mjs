@@ -95,6 +95,17 @@ try {
   await page.getByPlaceholder('例如：https://api.example.com/v1').fill(PROVIDER_URL)
   await page.getByPlaceholder(/API Token|已保存 Token/).fill(PROVIDER_TOKEN)
 
+  console.log('2a. Test connection should expose discovered models before sync')
+  await page.getByRole('button', { name: '测试连接', exact: true }).click()
+  await page.getByText(/连接成功，发现 2 个模型；现在可以直接搜索/).waitFor({ timeout: 20000 })
+  const modelSearch = page.getByPlaceholder('输入 gpt、5.6、sol 等实时匹配')
+  await modelSearch.fill('secondary')
+  await page.waitForTimeout(250)
+  const discoveredRow = modelRow('mock-secondary-model')
+  await discoveredRow.waitFor({ timeout: 10000 })
+  await discoveredRow.getByText('未同步', { exact: true }).waitFor()
+  await modelSearch.clear()
+
   const enabledSwitch = page.locator('.ai-config-page .el-switch').first()
   if (!(await enabledSwitch.getAttribute('class') || '').includes('is-checked')) {
     await enabledSwitch.click()
@@ -104,7 +115,6 @@ try {
   await page.getByText('AI 服务配置已保存').waitFor({ timeout: 20000 })
 
   await page.getByRole('button', { name: '同步模型', exact: true }).click()
-  const modelSearch = page.getByPlaceholder('输入 gpt、5.6、sol 等实时匹配')
   await modelSearch.fill('mock')
   await modelRow('mock-agent-model').waitFor({ timeout: 20000 })
   await modelRow('mock-secondary-model').waitFor({ timeout: 20000 })
