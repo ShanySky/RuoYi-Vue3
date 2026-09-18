@@ -1133,6 +1133,108 @@ try {
   assert.ok(Array.isArray(generatorCapability.result.rows))
   assert.ok(generatorCapability.toolNames.includes('page_tool_gen_preview'))
 
+  console.log('31b. User management semantic capabilities execute a reversible full business lifecycle')
+  await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
+  await page.waitForFunction(async () => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    return registry.getCurrentPageRuntime().route === '/system/user'
+      && Boolean(registry.getCurrentPageRuntime().pageInstanceId)
+  }, null, { timeout: 20000 })
+  const userCapabilitySnapshot = await page.evaluate(async () => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    return {
+      runtime: registry.getCurrentPageRuntime(),
+      toolNames: registry.getFrontendToolDefinitions().map(item => item.name),
+      context: registry.getCurrentPageContext()
+    }
+  })
+  for (const expectedTool of [
+    'page_system_user_search', 'page_system_user_reset',
+    'page_system_user_add_open', 'page_system_user_add_set_fields', 'page_system_user_add_submit',
+    'page_system_user_edit_open', 'page_system_user_edit_set_fields', 'page_system_user_edit_submit',
+    'page_system_user_view', 'page_system_user_delete', 'page_system_user_change_status',
+    'page_system_user_reset_password', 'page_system_user_auth_role',
+    'page_system_user_import_open', 'page_system_user_export'
+  ]) {
+    assert.ok(userCapabilitySnapshot.toolNames.includes(expectedTool), `Missing user capability: ${expectedTool}`)
+  }
+  assert.ok(Array.isArray(userCapabilitySnapshot.context.rows))
+  assert.ok(Array.isArray(userCapabilitySnapshot.context.selectedIds))
+  assert.ok(userCapabilitySnapshot.context.pagination)
+  assert.ok(userCapabilitySnapshot.context.query)
+
+  async function createTemporaryUser(suffix) {
+    await invokeRegisteredPageTool('/system/user', 'page_system_user_add_open', {})
+    const addContext = await page.evaluate(async () => {
+      const registry = await import('/src/ai/toolRegistry.js')
+      return registry.getCurrentPageContext()
+    })
+    const activePost = (addContext.form?.postOptions || []).find(item => String(item.status) === '0')
+    const activeRole = (addContext.form?.roleOptions || []).find(item => String(item.status) === '0' && Number(item.roleId) !== 1)
+      || (addContext.form?.roleOptions || []).find(item => String(item.status) === '0')
+    const userName = `aie2e_${Date.now()}_${suffix}`
+    const password = 'Abc123!@#'
+    await invokeRegisteredPageTool('/system/user', 'page_system_user_add_set_fields', {
+      userName,
+      password,
+      nickName: `AI E2E ${suffix}`,
+      status: '0',
+      postIds: activePost ? [Number(activePost.postId)] : [],
+      roleIds: activeRole ? [Number(activeRole.roleId)] : [],
+      remark: 'R3 F4 reversible acceptance'
+    })
+    const saved = await invokeRegisteredPageTool('/system/user', 'page_system_user_add_submit', {})
+    assert.ok(Number(saved.result.userId) > 0)
+    const created = await getUser(token, Number(saved.result.userId))
+    assert.equal(created.userName, userName)
+    assert.equal(created.nickName, `AI E2E ${suffix}`)
+    return { userId: Number(saved.result.userId), userName, password }
+  }
+
+  const tempUserOne = await createTemporaryUser('one')
+  const tempUserTwo = await createTemporaryUser('two')
+
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_change_status', {
+    userId: tempUserOne.userId,
+    status: '1'
+  })
+  assert.equal(String((await getUser(token, tempUserOne.userId)).status), '1')
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_change_status', {
+    userId: tempUserOne.userId,
+    status: '0'
+  })
+  assert.equal(String((await getUser(token, tempUserOne.userId)).status), '0')
+
+  const resetPassword = 'Reset123!@#'
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_reset_password', {
+    userId: tempUserOne.userId,
+    password: resetPassword
+  })
+  const tempUserToken = await loginApi(tempUserOne.userName, resetPassword)
+  assert.ok(tempUserToken)
+
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_import_open', {})
+  const importDialog = page.locator('.el-dialog:visible').filter({ hasText: '用户导入' }).first()
+  await importDialog.waitFor({ timeout: 10000 })
+  await page.keyboard.press('Escape')
+
+  const downloadPromise = page.waitForEvent('download', { timeout: 20000 })
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_export', {})
+  const exportDownload = await downloadPromise
+  assert.match(await exportDownload.suggestedFilename(), /user_.*\.xlsx$/)
+
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_delete', {
+    userIds: [tempUserOne.userId, tempUserTwo.userId]
+  })
+  const cleanupSearch = await invokeRegisteredPageTool('/system/user', 'page_system_user_search', {
+    userName: 'aie2e_',
+    pageNum: 1,
+    pageSize: 100
+  })
+  assert.equal((cleanupSearch.result.rows || []).some(item =>
+    [tempUserOne.userId, tempUserTwo.userId].includes(Number(item.userId))), false,
+    'Batch delete must remove both reversible acceptance users')
+
   await screenshot('ai-agent-model-selection-e2e-success')
   console.log('AI_AGENT_MODEL_SELECTION_E2E_OK')
 }
