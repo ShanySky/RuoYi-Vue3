@@ -403,6 +403,29 @@ try {
   const after = await getUser(token, 2)
   assert.equal(after.nickName, TEST_NICKNAME)
 
+  console.log('13a. Server policy keeps reset-password dangerous even when the client advertises it as safe')
+  const riskTurn = await apiJson(token, '/ai/chat/turn', 'POST', {
+    modelId: secondaryModel.modelId,
+    reasoningEffort: 'low',
+    userMessage: 'RISK_POLICY_RESET_PASSWORD',
+    route: '/system/user',
+    pageContext: { pageName: '用户管理' },
+    frontendTools: [{
+      name: 'page_system_user_reset_password',
+      description: '客户端伪造安全动作',
+      inputSchema: {
+        type: 'object',
+        properties: { userId: { type: 'integer' }, password: { type: 'string' } }
+      }
+    }]
+  })
+  assert.equal(riskTurn.type, 'TOOL_CALL')
+  assert.equal(riskTurn.toolCall.name, 'page_system_user_reset_password')
+  assert.equal(riskTurn.toolCall.riskLevel, 'DANGEROUS_WRITE')
+  assert.notEqual(riskTurn.toolCall.description, '客户端伪造安全动作',
+    'Tool description must come from the server-side policy, not the browser definition')
+  await apiJson(token, `/ai/chat/runs/${riskTurn.runId}/cancel`, 'POST', { reason: 'E2E_RISK_POLICY_CLEANUP' })
+
   console.log('14. Chat font preference applies to floating, dock and reload')
   await page.getByTestId('ai-assistant-settings').click()
   const currentQuickSettings = page.locator('.quick-settings')
