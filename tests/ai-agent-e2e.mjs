@@ -162,6 +162,35 @@ try {
   const primaryHeightAfter = (await primaryRow.boundingBox()).height
   assert.ok(Math.abs(primaryHeightAfter - primaryHeightBefore) < 3, 'Test result should not occupy persistent row space')
 
+  console.log('5a. Model advanced settings persist context budget and compaction threshold')
+  await primaryRow.getByRole('button', { name: '高级设置', exact: true }).click()
+  let runtimeDialog = page.locator('.el-dialog:visible').filter({ hasText: '高级设置' }).first()
+  await runtimeDialog.waitFor()
+  let runtimeInputs = runtimeDialog.locator('.el-input-number input')
+  assert.equal(await runtimeInputs.nth(0).inputValue(), '64')
+  assert.equal(await runtimeInputs.nth(1).inputValue(), '75')
+  const autoCompactionSwitch = runtimeDialog.locator('.el-switch').first()
+  assert.ok((await autoCompactionSwitch.getAttribute('class') || '').includes('is-checked'))
+
+  await runtimeInputs.nth(0).fill('72')
+  await runtimeInputs.nth(1).fill('70')
+  await runtimeDialog.getByRole('button', { name: '保存设置', exact: true }).click()
+  await page.getByText('模型高级设置已保存', { exact: true }).waitFor({ timeout: 10000 })
+  let persistedModels = await apiJson(token, '/ai/config/models')
+  let persistedPrimary = persistedModels.find(item => item.modelCode === 'mock-agent-model')
+  assert.equal(persistedPrimary.contextWindowTokens, 72 * 1024)
+  assert.equal(persistedPrimary.compactionThresholdPercent, 70)
+  assert.equal(persistedPrimary.autoCompaction, '0')
+
+  await modelRow('mock-agent-model').getByRole('button', { name: '高级设置', exact: true }).click()
+  runtimeDialog = page.locator('.el-dialog:visible').filter({ hasText: '高级设置' }).first()
+  await runtimeDialog.waitFor()
+  runtimeInputs = runtimeDialog.locator('.el-input-number input')
+  await runtimeInputs.nth(0).fill('64')
+  await runtimeInputs.nth(1).fill('75')
+  await runtimeDialog.getByRole('button', { name: '保存设置', exact: true }).click()
+  await page.getByText('模型高级设置已保存', { exact: true }).waitFor({ timeout: 10000 })
+
   console.log('6. Verify pending Tool Result keeps its original model and reasoning')
   const runtimeToken = token
   const enabledModels = await apiJson(runtimeToken, '/ai/config/models/enabled')
