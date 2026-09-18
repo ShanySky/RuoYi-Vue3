@@ -484,7 +484,7 @@ const aiTools = [
   },
   {
     name: 'page_system_user_edit_set_fields',
-    description: '修改当前已打开的用户编辑表单字段但不保存；仅允许昵称、手机号、邮箱、性别、状态、备注',
+    description: '修改当前已打开的用户编辑表单字段但不保存；仅允许用户昵称 nickName、手机号、邮箱、性别、状态、备注，不支持修改登录账号 userName',
     requiredPermission: 'system:user:edit',
     inputSchema: { type: 'object', properties: { nickName: { type: 'string' }, phonenumber: { type: 'string' }, email: { type: 'string' }, sex: { type: 'string', enum: ['0', '1', '2'] }, status: { type: 'string', enum: ['0', '1'] }, remark: { type: 'string' } }, additionalProperties: false },
     handler: async args => {
