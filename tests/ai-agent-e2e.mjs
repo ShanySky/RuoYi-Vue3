@@ -541,7 +541,21 @@ try {
   assert.equal(await page.getByPlaceholder('告诉 AI 你想做什么…').inputValue(), f5Draft)
   assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${historyConversationId}\\b`))
 
-  console.log('21. F5 during pending WRITE cancels the orphaned run and never persists the write')
+  console.log('21. F5 during pending WRITE cancels the orphaned run, invalidates the old page instance and never persists the write')
+  const userPageTurnRuntimes = []
+  const captureUserPageRuntime = request => {
+    if (!request.url().endsWith('/ai/chat/turn') || request.method() !== 'POST') return
+    try {
+      const body = request.postDataJSON()
+      if (body?.route === '/system/user') {
+        userPageTurnRuntimes.push({
+          pageInstanceId: body.pageInstanceId,
+          pageVersion: body.pageVersion
+        })
+      }
+    } catch {}
+  }
+  page.on('request', captureUserPageRuntime)
   await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
   await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
   await page.locator('.ai-fab').click()
@@ -553,6 +567,8 @@ try {
   const refreshConversationLabel = await page.locator('.context-label').innerText()
   const refreshConversationId = Number(refreshConversationLabel.match(/#(\d+)/)?.[1])
   assert.ok(refreshConversationId)
+  assert.ok(userPageTurnRuntimes[0]?.pageInstanceId, 'Expected the pre-refresh user-page capability instance id')
+  const preRefreshPageInstanceId = userPageTurnRuntimes[0].pageInstanceId
   const beforeRefreshWrite = await getUser(token, 2)
   assert.equal(beforeRefreshWrite.nickName, TEST_NICKNAME)
   await page.reload({ waitUntil: 'networkidle' })
@@ -565,6 +581,15 @@ try {
   const refreshedDetail = await apiJson(token, `/ai/chat/conversations/${refreshConversationId}`)
   assert.equal(refreshedDetail.activeRun, null)
   assert.equal((refreshedDetail.pendingTools || []).length, 0)
+
+  await sendByButton('PAGE_INSTANCE_REFRESH_TEST')
+  await page.getByText(/AI_OK:/).last().waitFor({ timeout: 30000 })
+  assert.ok(userPageTurnRuntimes.length >= 2, 'Expected a new turn after reload to expose the refreshed page capability instance')
+  const postRefreshPageInstanceId = userPageTurnRuntimes.at(-1)?.pageInstanceId
+  assert.ok(postRefreshPageInstanceId)
+  assert.notEqual(postRefreshPageInstanceId, preRefreshPageInstanceId,
+    'F5 must register a new page capability instance instead of reusing the stale instance')
+  page.off('request', captureUserPageRuntime)
 
   console.log('22. History entry is opt-in; restore and undo preserve the previous conversation state')
   assert.equal(await page.getByTestId('ai-assistant-history').count(), 0, 'History entry should be hidden by default')
@@ -658,6 +683,32 @@ try {
   assert.match(await page.locator('.context-label').innerText(), new RegExp(`#${firstTabConversationId}\\b`))
   assert.equal(Number(await page.evaluate(() => sessionStorage.getItem('ruoyi-ai-active-conversation'))), firstTabConversationId)
   assert.equal(Number(await page2.evaluate(() => sessionStorage.getItem('ruoyi-ai-active-conversation'))), tabTwoConversationId)
+
+  console.log('24a. Two tabs on the same conversation keep only one active Run and supersede the older one')
+  await page2.evaluate(id => sessionStorage.setItem('ruoyi-ai-active-conversation', String(id)), firstTabConversationId)
+  await page2.reload({ waitUntil: 'networkidle' })
+  await page2.locator('.ai-fab').click()
+  await assistantPanel(page2)
+  assert.match(await page2.locator('.context-label').innerText(), new RegExp(`#${firstTabConversationId}\\b`))
+
+  await page.getByPlaceholder('告诉 AI 你想做什么…').fill('SLOW_STOP_TEST')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByRole('button', { name: '停止', exact: true }).waitFor({ timeout: 10000 })
+  await page.waitForTimeout(250)
+  await sendByButton('STEER_NEW', page2)
+  await page2.getByText('STEER_NEW_OK', { exact: true }).last().waitFor({ timeout: 30000 })
+  await page.waitForTimeout(4500)
+
+  const sharedConversationDetail = await apiJson(token, `/ai/chat/conversations/${firstTabConversationId}`)
+  assert.equal(sharedConversationDetail.activeRun, null, 'Same-conversation tabs must not leave parallel active runs')
+  const sharedMessages = sharedConversationDetail.messages || []
+  assert.equal(sharedMessages.some(item => item.role === 'ASSISTANT' && item.content === 'SLOW_STOP_DONE'), false,
+    'The superseded tab run must not persist its late assistant response')
+  assert.equal(sharedMessages.some(item => item.role === 'ASSISTANT' && item.content === 'STEER_NEW_OK'), true,
+    'The newer same-conversation tab run must win')
+  const sharedAudit = await apiJson(token, `/ai/admin/audit/${firstTabConversationId}`)
+  assert.ok((sharedAudit.runs || []).some(run => run.status === 'SUPERSEDED' && run.cancelReason === 'STEERING'),
+    'Starting a newer Run in another tab must supersede the older active Run')
   await page2.close()
 
   console.log('25. Disabled user default model falls back to the system default with a visible notice')
