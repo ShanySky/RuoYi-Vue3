@@ -14,9 +14,11 @@
 
     <section
       v-else
+      ref="panelRef"
       data-testid="ai-assistant-panel"
       :class="['ai-panel', mode]"
       :style="panelStyle"
+      tabindex="-1"
     >
       <div v-if="mode === 'dock'" class="dock-resizer" @pointerdown="startResize" />
 
@@ -125,6 +127,7 @@
           </div>
 
           <div class="composer-shell">
+            <div v-if="escArmed && busy" class="esc-stop-hint">再按一次 <kbd>Esc</kbd> 停止当前执行</div>
             <el-input
               data-testid="ai-assistant-input"
               v-model="input"
@@ -132,7 +135,6 @@
               type="textarea"
               :autosize="{ minRows: mode === 'dock' ? 3 : 2, maxRows: mode === 'dock' ? 7 : 5 }"
               resize="none"
-              :disabled="busy"
               placeholder="告诉 AI 你想做什么…"
               @keydown="handleComposerKeydown"
             />
@@ -144,7 +146,6 @@
                   v-model="modelId"
                   v-model:reasoning-effort="reasoningEffort"
                   :models="models"
-                  :disabled="busy"
                 />
                 <el-dropdown trigger="click" @command="setSendShortcut">
                   <button class="shortcut-button" type="button">
@@ -159,16 +160,28 @@
                 </el-dropdown>
               </div>
 
-              <el-button
-                data-testid="ai-assistant-send"
-                type="primary"
-                size="small"
-                :loading="busy"
-                :disabled="!input.trim() || !modelId"
-                @click="sendMessage"
-              >
-                发送
-              </el-button>
+              <div class="composer-actions">
+                <el-button
+                  v-if="busy && input.trim()"
+                  data-testid="ai-assistant-steer"
+                  text
+                  type="primary"
+                  size="small"
+                  @click="sendMessage"
+                >
+                  发送补充
+                </el-button>
+                <el-button
+                  data-testid="ai-assistant-send"
+                  :type="busy ? 'danger' : 'primary'"
+                  size="small"
+                  :loading="stopping"
+                  :disabled="busy ? stopping : (!input.trim() || !modelId)"
+                  @click="busy ? stopCurrentRun() : sendMessage()"
+                >
+                  {{ busy ? '停止' : '发送' }}
+                </el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -186,7 +199,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
 import { listEnabledAiModels } from '@/api/ai/config'
-import { sendAiTurn } from '@/api/ai/chat'
+import {
+  cancelAiRun, cancelAiRunByClientKey, createAiConversation, sendAiTurn
+} from '@/api/ai/chat'
 import { getCurrentPageContext, getFrontendToolDefinitions, invokeFrontendTool } from '@/ai/toolRegistry'
 import useAiStore from '@/store/modules/ai'
 
@@ -207,6 +222,9 @@ const mode = ref('closed')
 const settingsOpen = ref(false)
 const dockWidth = ref(Number(localStorage.getItem('ai-dock-width')) || 560)
 const busy = ref(false)
+const stopping = ref(false)
+const escArmed = ref(false)
+const panelRef = ref(null)
 const workingText = ref('AI 正在处理…')
 const input = ref('')
 const models = ref([])
@@ -217,6 +235,13 @@ const messages = ref([])
 const messagePane = ref(null)
 const sendShortcut = ref(localStorage.getItem('ai-send-shortcut') === 'ctrl-enter' ? 'ctrl-enter' : 'enter')
 let seq = 0
+let runGeneration = 0
+let activeRunId = null
+let activeClientRunKey = null
+let activeAbortController = null
+let conversationCreationPromise = null
+let escArmedAt = 0
+let escTimer = null
 
 function append(role, text) {
   messages.value.push({ id: ++seq, role, text: String(text ?? '') })
