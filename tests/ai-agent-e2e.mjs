@@ -145,6 +145,7 @@ try {
   panel = await assistantPanel()
   assert.ok((await panel.getAttribute('class') || '').includes('dock'), 'AI should switch to dock mode')
   await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).waitFor()
+  await page.waitForTimeout(350)
   const layout = await page.evaluate(() => {
     const main = document.querySelector('.main-container')
     const dock = document.querySelector('[data-testid="ai-assistant-panel"]')
