@@ -325,24 +325,133 @@ function handleComposerKeydown(event) {
   }
 }
 
+async function ensureConversation() {
+  if (conversationId.value) return conversationId.value
+  if (!conversationCreationPromise) {
+    conversationCreationPromise = createAiConversation({
+      modelId: modelId.value,
+      reasoningEffort: reasoningEffort.value || null,
+      route: route.path
+    }).then(res => {
+      const id = res.data?.conversationId
+      if (!id) throw new Error('创建 AI 会话失败')
+      conversationId.value = id
+      return id
+    }).finally(() => {
+      conversationCreationPromise = null
+    })
+  }
+  return await conversationCreationPromise
+}
+
+function createClientRunKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError'
+    || error?.name === 'CanceledError'
+    || error?.code === 'ERR_CANCELED'
+    || /canceled|cancelled|aborted/i.test(String(error?.message || ''))
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function cancelByClientKeyWithRetry(clientRunKey, reason) {
+  let lastError
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      return await cancelAiRunByClientKey(clientRunKey, reason)
+    } catch (error) {
+      lastError = error
+      await delay(80 + attempt * 40)
+    }
+  }
+  throw lastError
+}
+
 async function sendMessage() {
   const text = input.value.trim()
-  if (!text || busy.value) return
+  if (!text) return
   if (!modelId.value) {
     ElMessage.warning('请先配置并选择一个已启用模型')
     return
   }
 
+  const steering = busy.value
+  try {
+    await ensureConversation()
+  } catch (error) {
+    ElMessage.error(error?.message || '创建 AI 会话失败')
+    return
+  }
+
   input.value = ''
   append('user', text)
+  if (steering) {
+    append('tool', '已收到补充指令：旧规划将在安全边界停止，并按最新要求继续')
+  }
+
+  const generation = ++runGeneration
+  activeAbortController?.abort()
+  const controller = new AbortController()
+  activeAbortController = controller
+  activeRunId = null
+  activeClientRunKey = createClientRunKey()
+  const clientRunKey = activeClientRunKey
+
+  resetEscArmed()
   busy.value = true
-  workingText.value = 'AI 正在理解你的请求…'
+  stopping.value = false
+  workingText.value = steering ? '正在根据最新补充重新规划…' : 'AI 正在理解你的请求…'
+
   try {
-    await driveTurn({ userMessage: text })
-  } catch (e) {
-    append('assistant', `执行失败：${e?.message || e}`)
+    await driveTurn({ userMessage: text, clientRunKey }, generation, controller.signal)
+  } catch (error) {
+    if (generation !== runGeneration || isAbortError(error)) return
+    append('assistant', `执行失败：${error?.message || error}`)
   } finally {
-    busy.value = false
+    if (generation === runGeneration) {
+      busy.value = false
+      stopping.value = false
+      activeAbortController = null
+      activeRunId = null
+      activeClientRunKey = null
+      resetEscArmed()
+      workingText.value = 'AI 正在处理…'
+    }
+  }
+}
+
+async function stopCurrentRun(reason = 'USER_STOP') {
+  if (!busy.value || stopping.value) return
+
+  const runId = activeRunId
+  const clientRunKey = activeClientRunKey
+  ++runGeneration
+  stopping.value = true
+  busy.value = false
+  resetEscArmed()
+  activeAbortController?.abort()
+  activeAbortController = null
+
+  try {
+    if (runId) {
+      await cancelAiRun(runId, reason)
+    } else if (clientRunKey) {
+      await cancelByClientKeyWithRetry(clientRunKey, reason)
+    }
+    append('tool', reason === 'DOUBLE_ESC' ? '已通过双击 Esc 停止当前 AI 执行' : '当前 AI 执行已停止')
+  } catch (error) {
+    append('tool', '停止请求未得到后端确认；前端已丢弃旧响应，不会继续执行页面操作')
+    console.warn('AI run cancel failed', error)
+  } finally {
+    stopping.value = false
+    activeRunId = null
+    activeClientRunKey = null
     workingText.value = 'AI 正在处理…'
   }
 }
@@ -362,13 +471,19 @@ function buildRequest(extra) {
   return payload
 }
 
-async function driveTurn(extra) {
+async function driveTurn(extra, generation, signal) {
   let payload = buildRequest(extra)
   for (let i = 0; i < 8; i++) {
-    const res = await sendAiTurn(payload)
-    const data = res.data
-    conversationId.value = data.conversationId
+    const res = await sendAiTurn(payload, { signal })
+    if (generation !== runGeneration) return
 
+    const data = res.data || {}
+    if (data.conversationId) conversationId.value = data.conversationId
+    if (data.runId) activeRunId = data.runId
+
+    if (data.type === 'RUN_STATE') {
+      return
+    }
     if (data.type === 'MESSAGE') {
       append('assistant', data.message || '')
       return
@@ -390,19 +505,67 @@ async function driveTurn(extra) {
           { confirmButtonText: '确认执行', cancelButtonText: '取消', type: 'warning', closeOnClickModal: false }
         )
       }
+      if (generation !== runGeneration) return
       const args = call.arguments ? JSON.parse(call.arguments) : {}
       result = await invokeFrontendTool(call.name, args)
+      if (generation !== runGeneration) return
       append('tool', `${call.description || call.name}：已执行`)
     } catch (e) {
+      if (generation !== runGeneration) return
       success = false
       error = e === 'cancel' || e === 'close' ? '用户取消了操作' : (e?.message || String(e))
       append('tool', `${call.description || call.name}：${error}`)
     }
 
+    if (generation !== runGeneration) return
     workingText.value = 'AI 正在读取页面执行结果…'
     payload = buildRequest({ toolResult: { callId: call.callId, success, result, error } })
   }
   throw new Error('本轮页面工具调用次数超过限制')
+}
+
+function isVisibleElement(element) {
+  if (!element) return false
+  const style = getComputedStyle(element)
+  const rect = element.getBoundingClientRect()
+  return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0
+}
+
+function hasVisibleAiOverlay() {
+  const selectors = ['.ai-model-picker-popper', '.el-select-dropdown', '.ai-remote-model-dialog', '.el-message-box']
+  return selectors.some(selector => [...document.querySelectorAll(selector)].some(isVisibleElement))
+}
+
+function resetEscArmed() {
+  escArmed.value = false
+  escArmedAt = 0
+  if (escTimer) {
+    clearTimeout(escTimer)
+    escTimer = null
+  }
+}
+
+function handleGlobalKeydown(event) {
+  if (event.key !== 'Escape' || event.isComposing || !busy.value || !aiStore.preferences.doubleEscEnabled) return
+  if (!panelRef.value?.contains(document.activeElement)) return
+
+  // The first Escape used to close an AI popover/menu is never counted as a stop gesture.
+  if (hasVisibleAiOverlay()) {
+    resetEscArmed()
+    return
+  }
+
+  const now = Date.now()
+  if (escArmed.value && now - escArmedAt <= 700) {
+    event.preventDefault()
+    resetEscArmed()
+    void stopCurrentRun('DOUBLE_ESC')
+    return
+  }
+
+  escArmed.value = true
+  escArmedAt = now
+  escTimer = setTimeout(resetEscArmed, 720)
 }
 
 function emitDockState() {
@@ -431,7 +594,13 @@ function startResize(event) {
 
 watch([mode, dockWidth], emitDockState, { immediate: true })
 onMounted(async () => {
+  window.addEventListener('keydown', handleGlobalKeydown)
   await Promise.all([loadModels(), aiStore.loadPreferences()])
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+  resetEscArmed()
+  activeAbortController?.abort()
 })
 </script>
 
