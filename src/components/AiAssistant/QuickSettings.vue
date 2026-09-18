@@ -163,6 +163,7 @@
             </div>
 
             <div class="model-card-footer">
+              <el-button link type="primary" size="small" @click="openAdvanced(model)">高级设置</el-button>
               <el-button
                 link
                 type="primary"
@@ -190,6 +191,12 @@
       正在加载 AI 配置…
     </div>
 
+    <ai-model-runtime-settings-dialog
+      v-model="advancedVisible"
+      :model="advancedModel"
+      @saved="handleAdvancedSaved"
+    />
+
     <ai-remote-model-picker
       v-model="pickerVisible"
       :remote-models="remoteModels"
@@ -207,6 +214,7 @@ import { refDebounced } from '@vueuse/core'
 import { Grid, Loading, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AiRemoteModelPicker from '@/components/AiRemoteModelPicker/index.vue'
+import AiModelRuntimeSettingsDialog from '@/components/AiModelRuntimeSettingsDialog/index.vue'
 import { filterAiModelsByQuery } from '@/ai/modelSearch'
 import useAiStore from '@/store/modules/ai'
 import {
@@ -229,6 +237,8 @@ const form = reactive({ name: '默认 AI 服务', baseUrl: '', token: '', enable
 const models = ref([])
 const remoteModels = ref([])
 const pickerVisible = ref(false)
+const advancedVisible = ref(false)
+const advancedModel = ref(null)
 const systemQuery = ref('')
 const debouncedSystemQuery = refDebounced(systemQuery, 180)
 const initialized = ref(false)
@@ -411,6 +421,17 @@ async function changeDefaultReasoning(model, value) {
   await loadModels()
   emit('updated')
   ElMessage.success({ message: '默认思考档位已更新', duration: 2000 })
+}
+
+function openAdvanced(model) {
+  advancedModel.value = model
+  advancedVisible.value = true
+}
+
+async function handleAdvancedSaved() {
+  await loadModels()
+  advancedModel.value = models.value.find(item => item.modelId === advancedModel.value?.modelId) || null
+  emit('updated')
 }
 
 async function testConnection(model) {
