@@ -1274,9 +1274,11 @@ try {
   }, null, { timeout: 20000 })
   const userCapabilitySnapshot = await page.evaluate(async () => {
     const registry = await import('/src/ai/toolRegistry.js')
+    const definitions = registry.getFrontendToolDefinitions()
     return {
       runtime: registry.getCurrentPageRuntime(),
-      toolNames: registry.getFrontendToolDefinitions().map(item => item.name),
+      toolNames: definitions.map(item => item.name),
+      definitions,
       context: registry.getCurrentPageContext()
     }
   })
@@ -1294,6 +1296,20 @@ try {
   assert.ok(Array.isArray(userCapabilitySnapshot.context.selectedIds))
   assert.ok(userCapabilitySnapshot.context.pagination)
   assert.ok(userCapabilitySnapshot.context.query)
+  const initialFormFields = Object.fromEntries((userCapabilitySnapshot.context.formFields || []).map(field => [field.key, field]))
+  assert.equal(initialFormFields.userName?.addOnly, true)
+  assert.ok((initialFormFields.userName?.validationRules || []).some(rule => rule.min === 2 && rule.max === 20))
+  assert.equal(initialFormFields.password?.addOnly, true)
+  assert.ok((initialFormFields.password?.validationRules || []).some(rule => rule.min === 6 && rule.max === 20))
+  assert.ok((initialFormFields.phonenumber?.validationRules || []).some(rule => rule.pattern))
+  assert.ok((initialFormFields.email?.validationRules || []).some(rule => rule.type === 'email'))
+
+  const editSetDefinition = userCapabilitySnapshot.definitions.find(item => item.name === 'page_system_user_edit_set_fields')
+  assert.ok(editSetDefinition)
+  assert.equal(Object.prototype.hasOwnProperty.call(editSetDefinition.inputSchema?.properties || {}, 'userName'), false,
+    'Existing login account must not be advertised as editable')
+  assert.equal(Object.prototype.hasOwnProperty.call(editSetDefinition.inputSchema?.properties || {}, 'password'), false,
+    'Existing user password must only be changed through the dedicated reset-password capability')
 
   async function invokeCurrentPageTool(toolName, args = {}) {
     return await page.evaluate(async ({ expectedTool, toolArgs }) => {
@@ -1311,22 +1327,39 @@ try {
 
   async function createTemporaryUser(suffix) {
     await invokeRegisteredPageTool('/system/user', 'page_system_user_add_open', {})
-    const addContext = await page.evaluate(async () => {
+    const addState = await page.evaluate(async () => {
       const registry = await import('/src/ai/toolRegistry.js')
-      return registry.getCurrentPageContext()
+      const definitions = registry.getFrontendToolDefinitions()
+      return {
+        context: registry.getCurrentPageContext(),
+        addDefinition: definitions.find(item => item.name === 'page_system_user_add_set_fields')
+      }
     })
-    const activePost = (addContext.form?.postOptions || []).find(item => String(item.status) === '0')
-    const activeRole = (addContext.form?.roleOptions || []).find(item => String(item.status) === '0' && Number(item.roleId) !== 1)
-      || (addContext.form?.roleOptions || []).find(item => String(item.status) === '0')
-    const userName = `aie2e_${Date.now()}_${suffix}`
+    const fields = Object.fromEntries((addState.context.formFields || []).map(field => [field.key, field]))
+    const activeDept = (fields.deptId?.options || []).find(item => !item.disabled)
+    const activePost = (fields.postIds?.options || []).find(item => !item.disabled)
+    const activeRole = (fields.roleIds?.options || []).find(item => !item.disabled && Number(item.value) !== 1)
+      || (fields.roleIds?.options || []).find(item => !item.disabled)
+    assert.ok(activeDept, 'User add capability must expose at least one enabled department option')
+    assert.ok(activePost, 'User add capability must expose at least one enabled post option')
+    assert.ok(activeRole, 'User add capability must expose at least one enabled role option')
+    assert.equal(addState.addDefinition?.inputSchema?.properties?.userName?.minLength, 2)
+    assert.equal(addState.addDefinition?.inputSchema?.properties?.userName?.maxLength, 20)
+    assert.equal(addState.addDefinition?.inputSchema?.properties?.password?.minLength, 6)
+    assert.equal(addState.addDefinition?.inputSchema?.properties?.password?.maxLength, 20)
+    assert.ok(Array.isArray(addState.addDefinition?.inputSchema?.properties?.postIds?.items?.enum))
+    assert.ok(Array.isArray(addState.addDefinition?.inputSchema?.properties?.roleIds?.items?.enum))
+
+    const userName = `a3${Date.now().toString().slice(-8)}${suffix === 'one' ? '1' : '2'}`
     const password = 'Abc123!@#'
     await invokeCurrentPageTool('page_system_user_add_set_fields', {
       userName,
       password,
       nickName: `AI E2E ${suffix}`,
+      deptId: Number(activeDept.value),
       status: '0',
-      postIds: activePost ? [Number(activePost.postId)] : [],
-      roleIds: activeRole ? [Number(activeRole.roleId)] : [],
+      postIds: [Number(activePost.value)],
+      roleIds: [Number(activeRole.value)],
       remark: 'R3 F4 reversible acceptance'
     })
     const saved = await invokeCurrentPageTool('page_system_user_add_submit', {})
@@ -1373,7 +1406,7 @@ try {
     userIds: [tempUserOne.userId, tempUserTwo.userId]
   })
   const cleanupSearch = await invokeRegisteredPageTool('/system/user', 'page_system_user_search', {
-    userName: 'aie2e_',
+    userName: 'a3',
     pageNum: 1,
     pageSize: 100
   })
