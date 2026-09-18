@@ -382,6 +382,42 @@ const deptAiCapabilities = createAiCrudPageCapabilities({
   },
   actions: [
     {
+      suffix: 'sort_submit',
+      permission: 'system:dept:edit',
+      label: '保存部门显示排序',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                deptId: { type: 'integer' },
+                orderNum: { type: 'integer', minimum: 0 }
+              },
+              required: ['deptId', 'orderNum'],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ['items'],
+        additionalProperties: false
+      },
+      handler: async ({ items }) => {
+        const values = Array.isArray(items) ? items : []
+        if (!values.length) throw new Error('没有可保存的排序项')
+        const ids = values.map(item => Number(item.deptId))
+        const orderNums = values.map(item => Number(item.orderNum))
+        if (ids.some(id => !Number.isInteger(id) || id <= 0) || orderNums.some(value => !Number.isInteger(value) || value < 0)) {
+          throw new Error('排序参数无效')
+        }
+        await updateDeptSort({ deptIds: ids.join(','), orderNums: orderNums.join(',') })
+        await getList()
+        return { saved: true, items: values }
+      }
+    },
+    {
       suffix: 'delete',
       permission: 'system:dept:remove',
       label: '删除部门',
