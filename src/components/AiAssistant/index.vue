@@ -747,6 +747,8 @@ function buildRequest(extra) {
   const runtime = getCurrentPageRuntime()
   const payload = {
     conversationId: conversationId.value,
+    capabilityProtocol: runtime.capabilityProtocol || null,
+    pageId: runtime.pageId || null,
     route: runtime.route || route.path,
     pageInstanceId: runtime.pageInstanceId || null,
     pageVersion: runtime.pageVersion || null,
@@ -800,6 +802,8 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
       if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
       const args = call.arguments ? JSON.parse(call.arguments) : {}
       result = await invokeFrontendTool(call.name, args, {
+        capabilityProtocol: payload.capabilityProtocol,
+        pageId: payload.pageId,
         route: payload.route,
         pageInstanceId: payload.pageInstanceId,
         pageVersion: payload.pageVersion
