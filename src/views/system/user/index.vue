@@ -190,7 +190,7 @@ import ExcelImportDialog from "@/components/ExcelImportDialog"
 import UserViewDrawer from "./view"
 import { usePasswordRule } from "@/utils/passwordRule"
 import { useAiPageTools } from "@/ai/toolRegistry"
-import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { createSystemUserPageCapability, systemUserPageContract } from "@/ai/pages/systemUserPageCapability"
 import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, updateUser, addUser, deptTreeSelect } from "@/api/system/user"
 
 const router = useRouter()
@@ -295,16 +295,25 @@ function resetQuery() {
   proxy.resetForm("queryRef")
   queryParams.value.deptId = undefined
   proxy.$refs.deptTreeRef.setCurrentKey(null)
-  handleQuery()
+  return handleQuery()
+}
+
+async function deleteUsersCore(userIds) {
+  const values = (Array.isArray(userIds) ? userIds : [userIds])
+    .map(value => Number(value))
+    .filter(value => Number.isInteger(value) && value > 0 && value !== 1)
+  if (!values.length) throw new Error('没有可删除的用户ID')
+  await delUser(values.join(','))
+  await getList()
+  return { deletedUserIds: values }
 }
 
 /** 删除按钮操作 */
 function handleDelete(row) {
-  const userIds = row.userId || ids.value
+  const userIds = row?.userId || ids.value
   proxy.$modal.confirm('是否确认删除用户编号为"' + userIds + '"的数据项？').then(function () {
-    return delUser(userIds)
+    return deleteUsersCore(userIds)
   }).then(() => {
-    getList()
     proxy.$modal.msgSuccess("删除成功")
   }).catch(() => {})
 }
@@ -316,11 +325,21 @@ function handleExport() {
   },`user_${new Date().getTime()}.xlsx`)
 }
 
+async function changeUserStatusCore(userId, status) {
+  const id = Number(userId)
+  if (!Number.isInteger(id) || id <= 0 || id === 1 || !['0', '1'].includes(String(status))) {
+    throw new Error('不能修改该用户状态')
+  }
+  await changeUserStatus(id, String(status))
+  await getList()
+  return { userId: id, status: String(status) }
+}
+
 /** 用户状态修改  */
 function handleStatusChange(row) {
   let text = row.status === "0" ? "启用" : "停用"
   proxy.$modal.confirm('确认要"' + text + '""' + row.userName + '"用户吗?').then(function () {
-    return changeUserStatus(row.userId, row.status)
+    return changeUserStatusCore(row.userId, row.status)
   }).then(() => {
     proxy.$modal.msgSuccess(text + "成功")
   }).catch(function () {
@@ -342,10 +361,25 @@ function handleCommand(command, row) {
   }
 }
 
+async function authRoleCore(userId) {
+  const id = Number(userId)
+  if (!Number.isInteger(id) || id <= 0 || id === 1) throw new Error('不能为该用户分配角色')
+  await router.push("/system/user-auth/role/" + id)
+  return { navigated: true, userId: id }
+}
+
 /** 跳转角色分配 */
 function handleAuthRole(row) {
-  const userId = row.userId
-  router.push("/system/user-auth/role/" + userId)
+  return authRoleCore(row.userId)
+}
+
+async function resetUserPasswordCore(userId, password) {
+  const id = Number(userId)
+  if (!Number.isInteger(id) || id <= 0 || id === 1 || !password) {
+    throw new Error('缺少有效用户ID或新密码')
+  }
+  await resetUserPwd(id, password)
+  return { userId: id, passwordChanged: true }
 }
 
 /** 重置密码按钮操作 */
@@ -356,7 +390,7 @@ function handleResetPwd(row) {
     closeOnClickModal: false,
     inputValidator: pwdPromptValidator
   }).then(({ value }) => {
-    resetUserPwd(row.userId, value).then(() => {
+    resetUserPasswordCore(row.userId, value).then(() => {
       proxy.$modal.msgSuccess("修改成功，新密码是：" + value)
     })
   }).catch(() => {})
@@ -474,28 +508,6 @@ function getUserAiRows() {
   }))
 }
 
-function mapAiOptions(items, valueKey, labelKey) {
-  return (items || []).map(item => ({
-    value: item?.[valueKey],
-    label: item?.[labelKey] ?? String(item?.[valueKey] ?? ''),
-    disabled: String(item?.status ?? '0') === '1'
-  })).filter(item => item.value !== undefined && item.value !== null)
-}
-
-function flattenDeptAiOptions(items = []) {
-  const result = []
-  const visit = nodes => {
-    for (const item of nodes || []) {
-      if (item?.id !== undefined && item?.id !== null) {
-        result.push({ value: Number(item.id), label: item.label || String(item.id), disabled: !!item.disabled })
-      }
-      if (Array.isArray(item?.children)) visit(item.children)
-    }
-  }
-  visit(items)
-  return result
-}
-
 function getUserAiFormSnapshot() {
   const value = form.value || {}
   return {
@@ -513,56 +525,22 @@ function getUserAiFormSnapshot() {
   }
 }
 
-const userAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '用户管理',
-  toolPrefix: 'page_system_user',
-  queryFields: [
-    { key: 'userName', label: '用户名称', description: '登录账号关键字' },
-    { key: 'phonenumber', label: '手机号码' },
-    { key: 'status', label: '状态', description: '0正常，1停用' },
-    { key: 'deptId', label: '部门ID', type: 'integer' },
-    { key: 'dateRange', label: '创建时间范围', type: 'array' },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  formFields: [
-    {
-      key: 'userName', label: '用户名称', required: true, addOnly: true,
-      description: '仅新增用户时可设置；已有用户登录账号不可修改',
-      validationRules: () => rules.value.userName
-    },
-    {
-      key: 'password', label: '用户密码', required: true, addOnly: true,
-      description: '仅新增用户时可设置',
-      validationRules: () => pwdValidator.value
-    },
-    { key: 'nickName', label: '用户昵称', required: true, validationRules: () => rules.value.nickName },
-    {
-      key: 'deptId', label: '归属部门', type: 'integer',
-      options: () => flattenDeptAiOptions(enabledDeptOptions.value || [])
-    },
-    { key: 'phonenumber', label: '手机号码', validationRules: () => rules.value.phonenumber },
-    { key: 'email', label: '邮箱', validationRules: () => rules.value.email },
-    {
-      key: 'sex', label: '用户性别', description: '0男，1女，2未知',
-      options: () => mapAiOptions(sys_user_sex.value || [], 'value', 'label')
-    },
-    {
-      key: 'status', label: '状态', description: '0正常，1停用',
-      options: () => mapAiOptions(sys_normal_disable.value || [], 'value', 'label')
-    },
-    {
-      key: 'postIds', label: '岗位ID列表', type: 'array', itemType: 'integer',
-      options: () => mapAiOptions(postOptions.value, 'postId', 'postName')
-    },
-    {
-      key: 'roleIds', label: '角色ID列表', type: 'array', itemType: 'integer',
-      options: () => mapAiOptions(roleOptions.value, 'roleId', 'roleName')
-    },
-    { key: 'remark', label: '备注' }
-  ],
+const userAiCapabilities = createSystemUserPageCapability({
+  validationRules: {
+    userName: () => rules.value.userName,
+    password: () => pwdValidator.value,
+    nickName: () => rules.value.nickName,
+    phonenumber: () => rules.value.phonenumber,
+    email: () => rules.value.email
+  },
+  options: {
+    departments: () => enabledDeptOptions.value || [],
+    sex: () => sys_user_sex.value || [],
+    status: () => sys_normal_disable.value || [],
+    posts: () => postOptions.value,
+    roles: () => roleOptions.value
+  },
   query: {
-    permission: 'system:user:list',
     apply: async args => {
       const allowed = ['userName', 'phonenumber', 'status', 'deptId', 'pageNum', 'pageSize']
       for (const key of allowed) {
@@ -581,10 +559,6 @@ const userAiCapabilities = createAiCrudPageCapabilities({
     })
   },
   form: {
-    addPermission: 'system:user:add',
-    editPermission: 'system:user:edit',
-    recordIdKey: 'userId',
-    recordIdLabel: '用户ID',
     openAdd: handleAdd,
     openEdit: userId => handleUpdate({ userId }),
     snapshot: getUserAiFormSnapshot,
@@ -615,82 +589,24 @@ const userAiCapabilities = createAiCrudPageCapabilities({
       return { ...result, userId: Number(created.userId), userName: createdUserName }
     }
   },
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'system:user:list',
-      label: '查看用户详情',
-      inputSchema: { type: 'object', properties: { userId: { type: 'integer' } }, required: ['userId'], additionalProperties: false },
-      handler: async args => {
-        handleViewData({ userId: args.userId })
-        return { opened: true, userId: args.userId }
-      }
+  actions: {
+    view: async args => {
+      handleViewData({ userId: args.userId })
+      return { opened: true, userId: args.userId }
     },
-    {
-      suffix: 'delete',
-      permission: 'system:user:remove',
-      label: '删除用户',
-      inputSchema: { type: 'object', properties: { userIds: { type: 'array', items: { type: 'integer' } } }, required: ['userIds'], additionalProperties: false },
-      handler: async args => {
-        const userIds = Array.isArray(args.userIds) ? args.userIds.filter(id => id && id !== 1) : []
-        if (!userIds.length) throw new Error('没有可删除的用户ID')
-        await delUser(userIds.join(','))
-        await getList()
-        return { deletedUserIds: userIds }
-      }
+    delete: args => deleteUsersCore(args.userIds),
+    change_status: args => changeUserStatusCore(args.userId, args.status),
+    reset_password: args => resetUserPasswordCore(args.userId, args.password),
+    auth_role: args => authRoleCore(args.userId),
+    import_open: async () => {
+      handleImport()
+      return { opened: true }
     },
-    {
-      suffix: 'change_status',
-      permission: 'system:user:edit',
-      label: '启用或停用用户',
-      inputSchema: { type: 'object', properties: { userId: { type: 'integer' }, status: { type: 'string', enum: ['0', '1'] } }, required: ['userId', 'status'], additionalProperties: false },
-      handler: async args => {
-        if (!args.userId || args.userId === 1) throw new Error('不能修改该用户状态')
-        await changeUserStatus(args.userId, args.status)
-        await getList()
-        return { userId: args.userId, status: args.status }
-      }
-    },
-    {
-      suffix: 'reset_password',
-      permission: 'system:user:resetPwd',
-      label: '重置用户密码',
-      inputSchema: { type: 'object', properties: { userId: { type: 'integer' }, password: { type: 'string' } }, required: ['userId', 'password'], additionalProperties: false },
-      handler: async args => {
-        if (!args.userId || args.userId === 1 || !args.password) throw new Error('缺少有效用户ID或新密码')
-        await resetUserPwd(args.userId, args.password)
-        return { userId: args.userId, passwordChanged: true }
-      }
-    },
-    {
-      suffix: 'auth_role',
-      permission: 'system:user:edit',
-      label: '进入用户角色分配页面',
-      inputSchema: { type: 'object', properties: { userId: { type: 'integer' } }, required: ['userId'], additionalProperties: false },
-      handler: async args => {
-        await router.push('/system/user-auth/role/' + args.userId)
-        return { navigated: true, userId: args.userId }
-      }
-    },
-    {
-      suffix: 'import_open',
-      permission: 'system:user:import',
-      label: '打开用户导入窗口',
-      handler: async () => {
-        handleImport()
-        return { opened: true }
-      }
-    },
-    {
-      suffix: 'export',
-      permission: 'system:user:export',
-      label: '按当前查询条件导出用户',
-      handler: async () => {
-        handleExport()
-        return { started: true, query: { ...queryParams.value } }
-      }
+    export: async () => {
+      handleExport()
+      return { started: true, query: { ...queryParams.value } }
     }
-  ],
+  },
   getRows: getUserAiRows,
   getTotal: () => total.value,
   getSelectedIds: () => [...ids.value],
@@ -709,10 +625,8 @@ const userAiCapabilities = createAiCrudPageCapabilities({
   })
 })
 
-useAiPageTools('system.user', userAiCapabilities.tools, userAiCapabilities.getContext, {
-  pageName: '用户管理',
-  route: '/system/user'
-})
+useAiPageTools(systemUserPageContract, userAiCapabilities.tools, userAiCapabilities.getContext)
+
 
 onMounted(() => {
   getDeptTree()

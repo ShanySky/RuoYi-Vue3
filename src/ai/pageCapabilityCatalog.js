@@ -1,5 +1,7 @@
-export const aiPageCapabilityCatalog = [
-  ['/system/user', '用户管理'],
+import { systemUserPageContract } from './pages/systemUserPageCapability.js'
+
+const legacyPageCapabilities = [
+
   ['/system/user-auth/role/*', '分配角色'],
   ['/system/role', '角色管理'],
   ['/system/role-auth/user/*', '角色分配用户'],
@@ -23,4 +25,9 @@ export const aiPageCapabilityCatalog = [
   ['/tool/gen-edit/index/*', '修改生成配置'],
   ['/tool/build', '表单构建'],
   ['/tool/swagger', '系统接口']
-].map(([route, pageName]) => ({ route, pageName }))
+]
+
+export const aiPageCapabilityCatalog = [
+  { route: systemUserPageContract.route, pageName: systemUserPageContract.pageName },
+  ...legacyPageCapabilities.map(([route, pageName]) => ({ route, pageName }))
+]
