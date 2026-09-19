@@ -1,3 +1,5 @@
+import { RUOYI_SEMANTIC_PAGE_PROTOCOL } from './capabilityProtocol.js'
+
 function objectSchema(properties = {}, required = []) {
   const schema = { type: 'object', properties, additionalProperties: false }
   if (required.length) schema.required = required
@@ -96,7 +98,40 @@ function pickDeclaredArgs(args, fields) {
   return Object.fromEntries(Object.entries(args || {}).filter(([key]) => allowed.has(key)))
 }
 
-export function createAiCrudPageCapabilities(options) {
+function mergeFieldBindings(fields, bindings = {}) {
+  return fields.map(field => ({ ...field, ...(bindings?.[field.key] || {}) }))
+}
+
+function normalizeCapabilityOptions(configuration) {
+  if (!configuration?.contract) return configuration
+  const contract = configuration.contract
+  const bindings = configuration.bindings || {}
+  return {
+    capabilityProtocol: contract.capabilityProtocol || RUOYI_SEMANTIC_PAGE_PROTOCOL,
+    pageId: contract.pageId,
+    pageName: contract.pageName,
+    route: contract.route,
+    toolPrefix: contract.toolPrefix,
+    queryFields: mergeFieldBindings(contract.queryFields || [], bindings.queryFields),
+    formFields: mergeFieldBindings(contract.formFields || [], bindings.formFields),
+    query: contract.query ? { ...contract.query, ...(bindings.query || {}) } : bindings.query,
+    form: contract.form ? { ...contract.form, ...(bindings.form || {}) } : bindings.form,
+    actions: (contract.actions || []).map(action => {
+      const binding = bindings.actions?.[action.suffix]
+      return {
+        ...action,
+        ...(typeof binding === 'function' ? { handler: binding } : (binding || {}))
+      }
+    }),
+    getRows: bindings.getRows,
+    getTotal: bindings.getTotal,
+    getSelectedIds: bindings.getSelectedIds,
+    getContext: bindings.getContext
+  }
+}
+
+export function createAiCrudPageCapabilities(configuration) {
+  const options = normalizeCapabilityOptions(configuration)
   const prefix = options.toolPrefix
   if (!prefix) throw new Error('AI CRUD capability requires toolPrefix')
 
@@ -235,7 +270,8 @@ export function createAiCrudPageCapabilities(options) {
     const base = options.getContext?.() || {}
     return {
       pageName: options.pageName,
-      capabilityProtocol: 'ruoyi-semantic-page-v1',
+      capabilityProtocol: options.capabilityProtocol || RUOYI_SEMANTIC_PAGE_PROTOCOL,
+      ...(options.pageId ? { pageId: options.pageId } : {}),
       queryFields: queryFields.map(fieldSnapshot),
       formFields: formFields.map(fieldSnapshot),
       actions: tools.map(tool => ({
