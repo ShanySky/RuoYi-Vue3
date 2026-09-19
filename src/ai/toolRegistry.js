@@ -1,5 +1,8 @@
 import router from '@/router'
 import useUserStore from '@/store/modules/user'
+import {
+  RUOYI_SEMANTIC_PAGE_PROTOCOL, isCompleteSemanticPageRuntime, sameSemanticPageRuntime
+} from './capabilityProtocol'
 
 let activePage = null
 let activeTools = new Map()
@@ -15,7 +18,8 @@ function hasPermission(permission) {
 
 function createPageInstanceId(pageId) {
   const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `${pageId || 'page'}:${random}`
+  const prefix = String(pageId || 'page').slice(0, 24)
+  return `${prefix}:${random}`
 }
 
 function normalizePath(path) {
@@ -73,14 +77,32 @@ function waitForPageRegistration(previousInstanceId, targetPath, timeout = 8000)
   })
 }
 
-export function registerAiPage(pageId, tools, getContext, options = {}) {
-  const route = options.route || router.currentRoute.value.path
-  const pageName = options.pageName || router.currentRoute.value.meta?.title || pageId
+function normalizePageRegistration(pageOrId, options = {}) {
+  if (pageOrId && typeof pageOrId === 'object') {
+    return {
+      capabilityProtocol: pageOrId.capabilityProtocol || RUOYI_SEMANTIC_PAGE_PROTOCOL,
+      pageId: pageOrId.pageId,
+      pageName: options.pageName || pageOrId.pageName || pageOrId.pageId,
+      route: options.route || pageOrId.route || router.currentRoute.value.path
+    }
+  }
+  return {
+    capabilityProtocol: RUOYI_SEMANTIC_PAGE_PROTOCOL,
+    pageId: pageOrId,
+    pageName: options.pageName || router.currentRoute.value.meta?.title || pageOrId,
+    route: options.route || router.currentRoute.value.path
+  }
+}
+
+export function registerAiPage(pageOrId, tools, getContext, options = {}) {
+  const registration = normalizePageRegistration(pageOrId, options)
+  if (!registration.pageId) throw new Error('AI Page Capability 缺少 pageId')
   activePage = {
-    pageId,
-    pageName,
-    route,
-    instanceId: createPageInstanceId(pageId),
+    capabilityProtocol: registration.capabilityProtocol,
+    pageId: registration.pageId,
+    pageName: registration.pageName,
+    route: registration.route,
+    instanceId: createPageInstanceId(registration.pageId),
     version: ++registrationVersion
   }
   activeTools = new Map()
@@ -93,7 +115,8 @@ export function registerAiPage(pageId, tools, getContext, options = {}) {
   return activePage
 }
 
-export function unregisterAiPage(pageId) {
+export function unregisterAiPage(pageOrId) {
+  const pageId = typeof pageOrId === 'object' ? pageOrId?.pageId : pageOrId
   if (activePage?.pageId !== pageId) return
   activePage = null
   activeTools = new Map()
@@ -102,17 +125,19 @@ export function unregisterAiPage(pageId) {
 
 export function getCurrentPageRuntime() {
   return activePage ? {
+    capabilityProtocol: activePage.capabilityProtocol,
     pageId: activePage.pageId,
     pageName: activePage.pageName,
     route: activePage.route,
     pageInstanceId: activePage.instanceId,
     pageVersion: activePage.version
   } : {
+    capabilityProtocol: null,
     pageId: null,
     pageName: router.currentRoute.value.meta?.title || '',
     route: router.currentRoute.value.path,
     pageInstanceId: null,
-    pageVersion: registrationVersion
+    pageVersion: null
   }
 }
 
@@ -154,6 +179,20 @@ async function invokeNavigation(args) {
     throw new Error(`当前用户无权访问或不存在页面：${path}`)
   }
 
+  const currentRoute = normalizePath(router.currentRoute.value.path)
+  if (currentRoute === path) {
+    const previousInstanceId = activePage?.instanceId
+    if (normalizePath(activePage?.route) !== path || !activePage?.instanceId) {
+      await waitForPageRegistration(previousInstanceId, path)
+    }
+    return {
+      navigated: true,
+      alreadyThere: true,
+      ...getCurrentPageRuntime(),
+      pageContext: getCurrentPageContext()
+    }
+  }
+
   const previousInstanceId = activePage?.instanceId
   await router.push(path)
   if (normalizePath(activePage?.route) !== path || activePage?.instanceId === previousInstanceId) {
@@ -167,19 +206,17 @@ async function invokeNavigation(args) {
 }
 
 function assertCurrentPageRuntime(expectedRuntime) {
-  if (!expectedRuntime) return
   const current = getCurrentPageRuntime()
-  const sameRoute = normalizePath(current.route) === normalizePath(expectedRuntime.route)
-  const sameInstance = current.pageInstanceId === expectedRuntime.pageInstanceId
-  const sameVersion = current.pageVersion === expectedRuntime.pageVersion
-  if (!sameRoute || !sameInstance || !sameVersion) {
+  const expected = expectedRuntime ? { ...expectedRuntime, route: normalizePath(expectedRuntime.route) } : null
+  const normalizedCurrent = { ...current, route: normalizePath(current.route) }
+  if (!isCompleteSemanticPageRuntime(expected) || !sameSemanticPageRuntime(expected, normalizedCurrent)) {
     throw new Error('页面已经切换或页面能力实例已刷新，旧页面工具已失效')
   }
 }
 
 export async function invokeFrontendTool(name, args, expectedRuntime) {
-  assertCurrentPageRuntime(expectedRuntime)
   if (name === 'app_navigate') return await invokeNavigation(args)
+  assertCurrentPageRuntime(expectedRuntime)
 
   const tool = activeTools.get(name)
   if (!tool || !hasPermission(tool.requiredPermission)) {
@@ -206,9 +243,9 @@ export function getCurrentPageContext() {
   }
 }
 
-export function useAiPageTools(pageId, tools, getContext, options = {}) {
-  const activate = () => registerAiPage(pageId, tools, getContext, options)
-  const deactivate = () => unregisterAiPage(pageId)
+export function useAiPageTools(pageOrId, tools, getContext, options = {}) {
+  const activate = () => registerAiPage(pageOrId, tools, getContext, options)
+  const deactivate = () => unregisterAiPage(pageOrId)
   onMounted(activate)
   onActivated(activate)
   onDeactivated(deactivate)

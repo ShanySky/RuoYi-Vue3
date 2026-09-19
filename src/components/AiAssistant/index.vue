@@ -272,6 +272,7 @@ import {
 import {
   getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
 } from '@/ai/toolRegistry'
+import { shouldPreserveToolExecutionRuntime } from '@/ai/capabilityProtocol'
 import useAiStore from '@/store/modules/ai'
 
 const emit = defineEmits(['dock-change'])
@@ -747,6 +748,8 @@ function buildRequest(extra) {
   const runtime = getCurrentPageRuntime()
   const payload = {
     conversationId: conversationId.value,
+    capabilityProtocol: runtime.capabilityProtocol || null,
+    pageId: runtime.pageId || null,
     route: runtime.route || route.path,
     pageInstanceId: runtime.pageInstanceId || null,
     pageVersion: runtime.pageVersion || null,
@@ -787,6 +790,15 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
     }
 
     const call = data.toolCall
+    const executionRuntime = {
+      capabilityProtocol: payload.capabilityProtocol,
+      pageId: payload.pageId,
+      route: payload.route,
+      pageInstanceId: payload.pageInstanceId,
+      pageVersion: payload.pageVersion
+    }
+    const executionPageContext = payload.pageContext
+    const executionFrontendTools = payload.frontendTools
     workingText.value = `准备执行：${call.description || call.name}`
     let success = true
     let result = null
@@ -800,6 +812,8 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
       if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
       const args = call.arguments ? JSON.parse(call.arguments) : {}
       result = await invokeFrontendTool(call.name, args, {
+        capabilityProtocol: payload.capabilityProtocol,
+        pageId: payload.pageId,
         route: payload.route,
         pageInstanceId: payload.pageInstanceId,
         pageVersion: payload.pageVersion
@@ -815,7 +829,27 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
 
     if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
     workingText.value = 'AI 正在读取页面执行结果…'
-    payload = buildRequest({ toolResult: { callId: call.callId, success, result, error } })
+    const resultPayload = buildRequest({ toolResult: { callId: call.callId, success, result, error } })
+    const currentRuntime = {
+      capabilityProtocol: resultPayload.capabilityProtocol,
+      pageId: resultPayload.pageId,
+      route: resultPayload.route,
+      pageInstanceId: resultPayload.pageInstanceId,
+      pageVersion: resultPayload.pageVersion
+    }
+    if (shouldPreserveToolExecutionRuntime(executionRuntime, currentRuntime, call.name, success, result)) {
+      // The Page Action itself navigated. The Tool Result must still prove which
+      // semantic page instance executed it; destination-page tools cannot be
+      // relabeled as source-page capabilities in the same continuation.
+      payload = {
+        ...resultPayload,
+        ...executionRuntime,
+        pageContext: executionPageContext,
+        frontendTools: (executionFrontendTools || []).filter(tool => tool?.name === 'app_navigate')
+      }
+    } else {
+      payload = resultPayload
+    }
   }
   throw new Error('本轮页面工具调用次数超过限制')
 }
