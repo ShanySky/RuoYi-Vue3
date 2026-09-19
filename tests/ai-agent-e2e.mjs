@@ -79,6 +79,17 @@ async function loginApi(username, password = 'admin123') {
   return payload.token
 }
 
+
+function semanticUserRuntime(pageInstanceId, pageVersion = 1) {
+  return {
+    capabilityProtocol: 'ruoyi-semantic-page-v1',
+    pageId: 'system.user',
+    route: '/system/user',
+    pageInstanceId,
+    pageVersion
+  }
+}
+
 async function screenshot(name) {
   await page.screenshot({ path: `test-results/${name}.png`, fullPage: true })
 }
@@ -267,7 +278,7 @@ try {
     modelId: primaryModel.modelId,
     reasoningEffort: 'high',
     userMessage: 'RUNTIME_ISOLATION',
-    route: '/system/user',
+    ...semanticUserRuntime('e2e-runtime-isolation'),
     pageContext: { pageName: '用户管理' },
     frontendTools
   })
@@ -282,7 +293,7 @@ try {
       success: true,
       result: { total: 1, rows: [{ userId: 2, userName: 'ry', nickName: '若依' }] }
     },
-    route: '/system/user',
+    ...semanticUserRuntime('e2e-runtime-isolation'),
     pageContext: { pageName: '用户管理', total: 1 },
     frontendTools
   })
@@ -412,7 +423,7 @@ try {
     modelId: secondaryModel.modelId,
     reasoningEffort: 'low',
     userMessage: 'RISK_POLICY_RESET_PASSWORD',
-    route: '/system/user',
+    ...semanticUserRuntime('e2e-risk-policy'),
     pageContext: { pageName: '用户管理' },
     frontendTools: [{
       name: 'page_system_user_reset_password',
@@ -522,6 +533,33 @@ try {
     'F5 during COMPACTING must cancel the old Run with CLIENT_RELOAD')
   assert.equal((reloadCompactionAudit.checkpoints || []).length, 0,
     'Reload-cancelled compaction must not persist an orphan Checkpoint')
+
+
+  console.log('14d. Steering during compaction supersedes the old compaction without an orphan checkpoint')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await compactionComposer.fill('UI_COMPACT_STEER_ONE ' + 'w'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('AI_OK:mock-agent-model:high', { exact: true }).last().waitFor({ timeout: 30000 })
+  await compactionComposer.fill('UI_COMPACT_STEER_TWO ' + 'x'.repeat(11000))
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByText('正在整理较早的会话上下文…', { exact: true }).waitFor({ timeout: 15000 })
+  const steerCompactionLabel = await page.locator('.context-label').innerText()
+  const steerCompactionConversationId = Number(steerCompactionLabel.match(/#(\d+)/)?.[1])
+  assert.ok(steerCompactionConversationId)
+  const steerCompactionInput = page.getByPlaceholder('告诉 AI 你想做什么…')
+  await steerCompactionInput.fill('STEER_COMPACT_NEW')
+  await page.getByRole('button', { name: '发送补充', exact: true }).click()
+  await page.getByText('STEER_COMPACT_NEW_OK', { exact: true }).waitFor({ timeout: 30000 })
+  await page.waitForTimeout(1800)
+  const steerCompactionAudit = await apiJson(token, `/ai/admin/audit/${steerCompactionConversationId}`)
+  const supersededCompaction = (steerCompactionAudit.runs || []).find(run =>
+    run.status === 'SUPERSEDED' && run.cancelReason === 'STEERING')
+  assert.ok(supersededCompaction, 'Steering during compaction must supersede the old Run')
+  assert.equal((steerCompactionAudit.checkpoints || []).some(cp =>
+    Number(cp.runId) === Number(supersededCompaction.runId)), false,
+    'The superseded compaction Run must not persist an orphan Checkpoint')
+  assert.ok((steerCompactionAudit.runs || []).some(run => run.status === 'COMPLETED'),
+    'The steering replacement Run must complete successfully')
 
   await apiJson(token, `/ai/config/models/${primaryModel.modelId}/runtime-settings`, 'PUT', {
     contextWindowTokens: 65536,
@@ -644,6 +682,62 @@ try {
   const afterSteerWrite = await getUser(token, 2)
   assert.equal(afterSteerWrite.nickName, TEST_NICKNAME, 'Pending WRITE was persisted after steering')
 
+
+  console.log('18b. A confirmed WRITE happens once even when steering supersedes the continuation')
+  await page.getByTestId('ai-assistant-new-conversation').click()
+  await sendByButton('STEER_WRITE_DONE_OLD')
+  const completedWriteConfirm = page.getByTestId('ai-write-confirmation')
+  await completedWriteConfirm.waitFor({ timeout: 60000 })
+  await completedWriteConfirm.getByRole('button', { name: '确认执行', exact: true }).click()
+
+  let completedWriteUser = null
+  for (let attempt = 0; attempt < 30; attempt++) {
+    completedWriteUser = await getUser(token, 2)
+    if (completedWriteUser.nickName === 'STEER_WRITE_DONE_ONCE') break
+    await page.waitForTimeout(200)
+  }
+  assert.equal(completedWriteUser?.nickName, 'STEER_WRITE_DONE_ONCE',
+    'Confirmed WRITE must become durable before steering the continuation')
+
+  const afterWriteSteeringInput = page.getByPlaceholder('告诉 AI 你想做什么…')
+  await afterWriteSteeringInput.fill('STEER_AFTER_WRITE_NEW')
+  await page.getByRole('button', { name: '发送补充', exact: true }).click()
+  await page.getByText('WRITE_COMPLETED_THEN_STEERED', { exact: true }).waitFor({ timeout: 30000 })
+  await page.waitForTimeout(4500)
+  assert.equal(await page.getByText('STEER_WRITE_DONE_OLD_FINISHED', { exact: true }).count(), 0,
+    'Superseded continuation must not append a late assistant result')
+
+  const completedWriteLabel = await page.locator('.context-label').innerText()
+  const completedWriteConversationId = Number(completedWriteLabel.match(/#(\d+)/)?.[1])
+  const completedWriteAudit = await apiJson(token, `/ai/admin/audit/${completedWriteConversationId}`)
+  const completedSubmitResults = (completedWriteAudit.messages || []).filter(item =>
+    item.role === 'TOOL' && item.toolName === 'page_system_user_edit_submit')
+  assert.equal(completedSubmitResults.length, 1,
+    'The confirmed WRITE must produce exactly one persisted submit Tool Result')
+  assert.ok((completedWriteAudit.runs || []).some(run =>
+    run.status === 'SUPERSEDED' && run.cancelReason === 'STEERING'),
+    'Steering after the completed WRITE must supersede only the old continuation Run')
+  assert.equal((await getUser(token, 2)).nickName, 'STEER_WRITE_DONE_ONCE',
+    'Steering must not replay or undo the already completed WRITE')
+
+  // Restore the shared fixture before later Stop/F5/WRITE tests; this is test
+  // teardown, not part of the Agent semantics being asserted above.
+  const restoreDetail = await apiRaw(token, '/system/user/2')
+  await apiJson(token, '/system/user', 'PUT', {
+    userId: 2,
+    userName: restoreDetail.payload.data.userName,
+    nickName: TEST_NICKNAME,
+    deptId: restoreDetail.payload.data.deptId,
+    phonenumber: restoreDetail.payload.data.phonenumber,
+    email: restoreDetail.payload.data.email,
+    sex: restoreDetail.payload.data.sex,
+    status: restoreDetail.payload.data.status,
+    postIds: restoreDetail.payload.postIds || [],
+    roleIds: restoreDetail.payload.roleIds || [],
+    remark: restoreDetail.payload.data.remark
+  })
+  assert.equal((await getUser(token, 2)).nickName, TEST_NICKNAME)
+
   console.log('19. Cross-page Agent creates a role and assigns it to ry in one conversation')
   await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
   await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
@@ -724,6 +818,9 @@ try {
       const body = request.postDataJSON()
       if (body?.route === '/system/user') {
         userPageTurnRuntimes.push({
+          capabilityProtocol: body.capabilityProtocol,
+          pageId: body.pageId,
+          route: body.route,
           pageInstanceId: body.pageInstanceId,
           pageVersion: body.pageVersion
         })
@@ -742,7 +839,11 @@ try {
   const refreshConversationLabel = await page.locator('.context-label').innerText()
   const refreshConversationId = Number(refreshConversationLabel.match(/#(\d+)/)?.[1])
   assert.ok(refreshConversationId)
+  assert.equal(userPageTurnRuntimes[0]?.capabilityProtocol, 'ruoyi-semantic-page-v1')
+  assert.equal(userPageTurnRuntimes[0]?.pageId, 'system.user')
+  assert.equal(userPageTurnRuntimes[0]?.route, '/system/user')
   assert.ok(userPageTurnRuntimes[0]?.pageInstanceId, 'Expected the pre-refresh user-page capability instance id')
+  assert.ok(Number(userPageTurnRuntimes[0]?.pageVersion) > 0)
   const preRefreshPageInstanceId = userPageTurnRuntimes[0].pageInstanceId
   const beforeRefreshWrite = await getUser(token, 2)
   assert.equal(beforeRefreshWrite.nickName, TEST_NICKNAME)
@@ -1071,9 +1172,7 @@ try {
     modelId: primaryModel.modelId,
     reasoningEffort: 'high',
     userMessage: 'H_PAGE_DISABLED_TOOL',
-    route: '/system/user',
-    pageInstanceId: 'h-disabled-page',
-    pageVersion: 1,
+    ...semanticUserRuntime('h-disabled-page'),
     pageContext: {},
     frontendTools: [{
       name: 'page_system_user_search',
@@ -1128,9 +1227,7 @@ try {
     modelId: primaryModel.modelId,
     reasoningEffort: 'high',
     userMessage: 'H_SECURITY_PROMPT_TEST',
-    route: '/system/user',
-    pageInstanceId: 'h-security-page',
-    pageVersion: 1,
+    ...semanticUserRuntime('h-security-page'),
     pageContext: {},
     frontendTools: [{
       name: 'page_unregistered_admin_write',
@@ -1282,6 +1379,14 @@ try {
       context: registry.getCurrentPageContext()
     }
   })
+  assert.equal(userCapabilitySnapshot.runtime.capabilityProtocol, 'ruoyi-semantic-page-v1')
+  assert.equal(userCapabilitySnapshot.runtime.pageId, 'system.user')
+  assert.equal(userCapabilitySnapshot.runtime.route, '/system/user')
+  assert.ok(userCapabilitySnapshot.runtime.pageInstanceId)
+  assert.ok(Number(userCapabilitySnapshot.runtime.pageVersion) > 0)
+  assert.equal(userCapabilitySnapshot.context.capabilityProtocol, 'ruoyi-semantic-page-v1')
+  assert.equal(userCapabilitySnapshot.context.pageId, 'system.user')
+
   for (const expectedTool of [
     'page_system_user_search', 'page_system_user_reset',
     'page_system_user_add_open', 'page_system_user_add_set_fields', 'page_system_user_add_submit',
@@ -1428,6 +1533,25 @@ try {
   assert.equal(Number(allFilterContext.query.pageNum), 1)
   assert.equal(Number(allFilterContext.query.pageSize), 100)
 
+  const resetResult = await invokeCurrentPageTool('page_system_user_reset', {})
+  assert.equal(resetResult.result.reset, true)
+  const resetContext = await page.evaluate(async () => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    return registry.getCurrentPageContext()
+  })
+  assert.ok(!resetContext.query.userName)
+  assert.ok(!resetContext.query.phonenumber)
+  assert.ok(!resetContext.query.status)
+  assert.ok(!resetContext.query.deptId)
+  assert.deepEqual(resetContext.query.dateRange, [])
+  assert.equal(Number(resetContext.query.pageNum), 1)
+
+  await invokeRegisteredPageTool('/system/user', 'page_system_user_search', {
+    userName: tempUserOne.userName,
+    pageNum: 1,
+    pageSize: 100
+  })
+
   const tempRow = page.locator('.el-table__row').filter({ hasText: tempUserOne.userName }).first()
   await tempRow.waitFor({ timeout: 10000 })
   await tempRow.locator('.el-checkbox').first().click()
@@ -1460,6 +1584,24 @@ try {
   })
   const tempUserToken = await loginApi(tempUserOne.userName, resetPassword)
   assert.ok(tempUserToken)
+
+  const authRoleResult = await invokeRegisteredPageTool('/system/user', 'page_system_user_auth_role', {
+    userId: tempUserOne.userId
+  })
+  assert.equal(authRoleResult.result.navigated, true)
+  assert.equal(Number(authRoleResult.result.userId), tempUserOne.userId)
+  await page.waitForURL(url => url.pathname === `/system/user-auth/role/${tempUserOne.userId}`, { timeout: 10000 })
+  const sameTargetNavigation = await page.evaluate(async expectedPath => {
+    const registry = await import('/src/ai/toolRegistry.js')
+    return await registry.invokeFrontendTool('app_navigate', { path: expectedPath })
+  }, `/system/user-auth/role/${tempUserOne.userId}`)
+  assert.equal(sameTargetNavigation.navigated, true)
+  assert.equal(sameTargetNavigation.alreadyThere, true)
+  assert.equal(sameTargetNavigation.route, `/system/user-auth/role/${tempUserOne.userId}`)
+  assert.ok(sameTargetNavigation.pageInstanceId,
+    'Same-target app_navigate must reuse the already registered destination runtime instead of timing out')
+  await page.goto(`${APP_URL}/system/user`, { waitUntil: 'networkidle' })
+  await page.getByPlaceholder('请输入用户名称').waitFor({ timeout: 30000 })
 
   await invokeRegisteredPageTool('/system/user', 'page_system_user_import_open', {})
   const importDialog = page.locator('.el-dialog:visible').filter({ hasText: '用户导入' }).first()
