@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - chatgpt/ai-agent-assistant
+      - chatgpt/ai-agent-hardening-phase35-p0
   workflow_dispatch:
 
 jobs:
@@ -15,6 +16,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Validate Capability Contract v1
+        run: node tests/ai-capability-contract.test.mjs
       - name: Install dependencies
         run: npm install
       - name: Production build
