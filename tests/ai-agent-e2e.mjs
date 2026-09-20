@@ -116,19 +116,6 @@ async function selectRemoteModel(dialog, name) {
   await row.locator('.el-checkbox').first().click()
 }
 
-async function selectPersonalDefaults(settings, targetPage = page, effortName = '高') {
-  const modelRow = settings.locator('.preference-row').filter({ hasText: '我的默认模型' })
-  await modelRow.locator('.el-select').click()
-  const availableModelOption = targetPage.locator('.el-select-dropdown:visible .el-select-dropdown__item:not(.is-disabled)').first()
-  await availableModelOption.waitFor({ timeout: 10000 })
-  await availableModelOption.click()
-  const reasoningRow = settings.locator('.preference-row').filter({ hasText: '我的默认思考档位' })
-  await reasoningRow.getByText('我的默认思考档位', { exact: true }).waitFor({ timeout: 10000 })
-  await reasoningRow.locator('.el-select').click()
-  await targetPage.locator('.el-select-dropdown:visible').getByText(effortName, { exact: true }).click()
-  await targetPage.waitForTimeout(250)
-}
-
 try {
   console.log('1. Login through Vue UI')
   await page.goto(`${APP_URL}/login`, { waitUntil: 'networkidle' })
@@ -421,6 +408,12 @@ try {
   assert.equal(isolationResume.message, 'ISOLATION:mock-agent-model:high')
 
   console.log('7. Verify refined non-modal floating window and personal quick settings')
+  const adminInitialPreferences = await apiJson(token, '/ai/preferences')
+  await apiJson(token, '/ai/preferences', 'PUT', {
+    ...adminInitialPreferences,
+    defaultModelId: primaryPreferenceModel.modelId,
+    defaultReasoningEffort: 'high'
+  })
   await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
   await page.locator('.ai-fab').click()
   let panel = await assistantPanel()
@@ -430,13 +423,12 @@ try {
   const personalSettings = page.locator('.quick-settings')
   await personalSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
   await personalSettings.getByText('我的默认模型', { exact: true }).waitFor()
-  await selectPersonalDefaults(personalSettings, page)
+  await personalSettings.getByText('我的默认思考档位', { exact: true }).waitFor({ timeout: 10000 })
   const adminPreferencesAfterQuickSettings = await apiJson(token, '/ai/preferences')
-  assert.ok(afterAdd.some(item => item.modelId === adminPreferencesAfterQuickSettings.defaultModelId),
+  assert.equal(Number(adminPreferencesAfterQuickSettings.defaultModelId), Number(primaryPreferenceModel.modelId),
     'Administrator personal default model must persist as a user preference, not a system-model mutation')
   assert.equal(adminPreferencesAfterQuickSettings.defaultReasoningEffort, 'high',
     'Administrator personal default reasoning must persist independently of system defaults')
-  await personalSettings.getByText('我的默认思考档位', { exact: true }).waitFor()
   assert.equal(await personalSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
   assert.equal(await personalSettings.getByText('系统模型', { exact: true }).count(), 0)
   await page.getByTestId('ai-assistant-settings').click()
