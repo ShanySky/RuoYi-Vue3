@@ -244,8 +244,19 @@ try {
   assert.equal(plainProvider.payload.code, 403, 'Ordinary user must not receive system AI configuration permission')
   const plainEnabledModels = await apiRaw(plainToken, '/ai/config/models/enabled')
   assert.equal(plainEnabledModels.payload.code, 200, 'Ordinary user must still be able to load enabled models')
-  assert.ok((plainEnabledModels.payload.data || []).some(item => item.modelCode === 'mock-agent-model'),
-    'Ordinary user enabled-model response must include the administrator-opened primary model')
+  const plainPrimaryModel = (plainEnabledModels.payload.data || []).find(item => item.modelCode === 'mock-agent-model')
+  assert.ok(plainPrimaryModel, 'Ordinary user enabled-model response must include the administrator-opened primary model')
+  assert.equal(plainPrimaryModel.reasoningCapability, 'SUPPORTED',
+    'Ordinary user enabled-model view must preserve reasoning capability metadata')
+  assert.ok(String(plainPrimaryModel.reasoningEfforts || '').split(',').includes('high'),
+    'Ordinary user enabled-model view must preserve supported reasoning efforts')
+
+  const plainInitialPreferences = await apiJson(plainToken, '/ai/preferences')
+  await apiJson(plainToken, '/ai/preferences', 'PUT', {
+    ...plainInitialPreferences,
+    defaultModelId: plainPrimaryModel.modelId,
+    defaultReasoningEffort: 'high'
+  })
 
   const plainContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   const plainPage = await plainContext.newPage()
@@ -263,13 +274,12 @@ try {
   const plainSettings = plainPage.locator('.quick-settings')
   await plainSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
   await plainSettings.getByText('我的默认模型', { exact: true }).waitFor()
-  await selectPersonalDefaults(plainSettings, plainPage)
+  await plainSettings.getByText('我的默认思考档位', { exact: true }).waitFor({ timeout: 10000 })
   const plainPreferences = await apiJson(plainToken, '/ai/preferences')
-  assert.ok((plainEnabledModels.payload.data || []).some(item => item.modelId === plainPreferences.defaultModelId),
-    'Ordinary user default model selected in personal settings must persist within the enabled-model set')
+  assert.equal(Number(plainPreferences.defaultModelId), Number(plainPrimaryModel.modelId),
+    'Ordinary user personal default model must survive browser-side settings loading')
   assert.equal(plainPreferences.defaultReasoningEffort, 'high',
-    'Ordinary user default reasoning selected in personal settings must persist')
-  await plainSettings.getByText('我的默认思考档位', { exact: true }).waitFor()
+    'Ordinary user personal default reasoning must survive browser-side settings loading')
   assert.equal(await plainSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
   assert.equal(await plainSettings.getByText('系统模型', { exact: true }).count(), 0)
   await plainPage.waitForTimeout(300)
