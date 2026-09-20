@@ -204,6 +204,9 @@ try {
   await modelRow('mock-secondary-model').waitFor({ timeout: 30000 })
   const afterAdd = await apiJson(token, '/ai/config/models')
   assert.equal(afterAdd.length, 2, 'Only selected models should enter the system model list')
+  const primaryPreferenceModel = afterAdd.find(item => item.modelCode === 'mock-agent-model')
+  assert.ok(primaryPreferenceModel, 'Primary model must exist after system model selection')
+  const primaryPreferenceModelLabel = primaryPreferenceModel.displayName || primaryPreferenceModel.modelCode
 
   console.log('4. Newly added models auto-detect Tool Calling and reasoning capabilities')
   const primaryRow = modelRow('mock-agent-model')
@@ -239,6 +242,8 @@ try {
   assert.equal(plainProvider.payload.code, 403, 'Ordinary user must not receive system AI configuration permission')
   const plainEnabledModels = await apiRaw(plainToken, '/ai/config/models/enabled')
   assert.equal(plainEnabledModels.payload.code, 200, 'Ordinary user must still be able to load enabled models')
+  assert.ok((plainEnabledModels.payload.data || []).some(item => item.modelCode === 'mock-agent-model'),
+    'Ordinary user enabled-model response must include the administrator-opened primary model')
 
   const plainContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   const plainPage = await plainContext.newPage()
@@ -256,7 +261,7 @@ try {
   const plainSettings = plainPage.locator('.quick-settings')
   await plainSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
   await plainSettings.getByText('我的默认模型', { exact: true }).waitFor()
-  await selectPersonalDefaults(plainSettings, plainPage)
+  await selectPersonalDefaults(plainSettings, plainPage, primaryPreferenceModelLabel)
   await plainSettings.getByText('我的默认思考档位', { exact: true }).waitFor()
   assert.equal(await plainSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
   assert.equal(await plainSettings.getByText('系统模型', { exact: true }).count(), 0)
@@ -408,7 +413,7 @@ try {
   const personalSettings = page.locator('.quick-settings')
   await personalSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
   await personalSettings.getByText('我的默认模型', { exact: true }).waitFor()
-  await selectPersonalDefaults(personalSettings)
+  await selectPersonalDefaults(personalSettings, page, primaryPreferenceModelLabel)
   await personalSettings.getByText('我的默认思考档位', { exact: true }).waitFor()
   assert.equal(await personalSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
   assert.equal(await personalSettings.getByText('系统模型', { exact: true }).count(), 0)
