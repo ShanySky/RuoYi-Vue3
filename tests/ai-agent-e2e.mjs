@@ -122,32 +122,40 @@ try {
   await page.getByRole('button', { name: /登\s*录/ }).click()
   await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 30000 })
 
-  console.log('2. Quick settings can test model loading without adding every remote model')
+  console.log('2. My AI settings contain only personal preferences and never load system configuration')
   await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
   await page.locator('.ai-fab').click()
   await assistantPanel()
+  const quickSettingsRequests = []
+  const captureQuickSettingsRequest = request => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/dev-api/ai/') || path.startsWith('/ai/')) quickSettingsRequests.push(path)
+  }
+  page.on('request', captureQuickSettingsRequest)
   await page.getByTestId('ai-assistant-settings').click()
   const quickSettings = page.locator('.quick-settings')
-  await quickSettings.getByPlaceholder('https://api.example.com/v1').fill(PROVIDER_URL)
-  await quickSettings.getByPlaceholder(/API Token|请输入 API Token/).fill(PROVIDER_TOKEN)
-  await quickSettings.getByRole('button', { name: '测试模型加载', exact: true }).click()
-  await quickSettings.getByText(/模型加载成功：发现 2 个远端模型/).waitFor({ timeout: 20000 })
-  assert.equal(await quickSettings.locator('.system-model-card').count(), 0, 'Remote discovery must not auto-add system models')
-  await quickSettings.locator('.compact-form').getByRole('button', { name: '选择模型', exact: true }).click()
-  let remoteDialog = page.locator('.ai-remote-model-dialog:visible')
-  await remoteDialog.getByText('选择要加入系统的模型', { exact: true }).waitFor()
-  const quickRemoteSearch = remoteDialog.getByPlaceholder(/输入 gpt、5.6、sol/)
-  await quickRemoteSearch.fill('secondary')
-  await page.waitForTimeout(250)
-  await remoteDialog.getByText('mock-secondary-model', { exact: true }).waitFor()
-  assert.equal(await remoteDialog.getByText('mock-agent-model', { exact: true }).count(), 0,
-    'Remote catalog search should filter without persisting models')
-  await remoteDialog.getByRole('button', { name: '取消', exact: true }).click()
+  await quickSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
+  await quickSettings.getByText('我的默认模型', { exact: true }).waitFor()
+  assert.equal(await quickSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
+  assert.equal(await quickSettings.getByText('系统模型', { exact: true }).count(), 0)
+  assert.equal(await quickSettings.getByText('Base URL', { exact: true }).count(), 0)
+  assert.equal(await quickSettings.getByText('Token', { exact: true }).count(), 0)
+  assert.equal(await quickSettings.getByRole('button', { name: '保存连接配置', exact: true }).count(), 0)
+  assert.equal(await quickSettings.getByRole('button', { name: '添加模型', exact: true }).count(), 0)
+  await page.waitForTimeout(300)
+  assert.equal(quickSettingsRequests.some(path => path.endsWith('/ai/config/provider')), false,
+    'Opening personal settings must not request Provider configuration')
+  assert.equal(quickSettingsRequests.some(path => path.endsWith('/ai/config/models')), false,
+    'Opening personal settings must not request the system model administration list')
+  assert.ok(quickSettingsRequests.some(path => path.endsWith('/ai/config/models/enabled')),
+    'Opening personal settings should load only enabled models for user selection')
+  page.off('request', captureQuickSettingsRequest)
+  await page.getByTestId('ai-assistant-settings').click()
   await page.getByTestId('ai-assistant-close').click()
 
-  console.log('3. Save Provider connection, load remote catalog and add only selected models')
-  await page.goto(`${APP_URL}/system/aiConfig`, { waitUntil: 'networkidle' })
-  await page.getByText('AI 服务配置', { exact: true }).first().waitFor({ timeout: 30000 })
+  console.log('3. Formal AI management entries own Provider connection and system model administration')
+  await page.goto(`${APP_URL}/ai/service`, { waitUntil: 'networkidle' })
+  await page.getByText('AI 服务', { exact: true }).first().waitFor({ timeout: 30000 })
   await page.getByPlaceholder('例如：https://api.example.com/v1').fill(PROVIDER_URL)
   await page.getByPlaceholder(/API Token|已保存 Token/).fill(PROVIDER_TOKEN)
 
@@ -166,9 +174,18 @@ try {
   const beforeAdd = await apiJson(token, '/ai/config/models')
   assert.equal(beforeAdd.length, 0, 'Testing model load must not persist the remote catalog')
 
-  await page.getByRole('button', { name: '选择模型', exact: true }).first().click()
-  remoteDialog = page.locator('.ai-remote-model-dialog:visible')
+  await page.goto(`${APP_URL}/ai/models`, { waitUntil: 'networkidle' })
+  await page.getByText('模型管理', { exact: true }).first().waitFor({ timeout: 30000 })
+  await page.getByRole('button', { name: '添加模型', exact: true }).click()
+  let remoteDialog = page.locator('.ai-remote-model-dialog:visible')
   await remoteDialog.getByText('选择要加入系统的模型', { exact: true }).waitFor()
+  const modelAdminSearch = remoteDialog.getByPlaceholder(/输入 gpt、5.6、sol/)
+  await modelAdminSearch.fill('secondary')
+  await page.waitForTimeout(250)
+  await remoteDialog.getByText('mock-secondary-model', { exact: true }).waitFor()
+  assert.equal(await remoteDialog.getByText('mock-agent-model', { exact: true }).count(), 0,
+    'Remote catalog search should filter without persisting models')
+  await modelAdminSearch.fill('')
   await selectRemoteModel(remoteDialog, 'mock-agent-model')
   await selectRemoteModel(remoteDialog, 'mock-secondary-model')
   await remoteDialog.getByRole('button', { name: '添加所选模型', exact: true }).click()
@@ -177,6 +194,8 @@ try {
   await modelRow('mock-secondary-model').waitFor({ timeout: 30000 })
   const afterAdd = await apiJson(token, '/ai/config/models')
   assert.equal(afterAdd.length, 2, 'Only selected models should enter the system model list')
+  const primaryPreferenceModel = afterAdd.find(item => item.modelCode === 'mock-agent-model')
+  assert.ok(primaryPreferenceModel, 'Primary model must exist after system model selection')
 
   console.log('4. Newly added models auto-detect Tool Calling and reasoning capabilities')
   const primaryRow = modelRow('mock-agent-model')
@@ -193,7 +212,78 @@ try {
   await page.locator('.el-select-dropdown:visible').getByText('高', { exact: true }).click()
   await page.getByText('默认思考档位已更新', { exact: true }).waitFor({ timeout: 10000 })
 
-  console.log('4a. Reasoning none/max are preserved end-to-end and unsupported minimal stays hidden')
+  console.log('4a. Ordinary user sees the same personal-only settings without receiving system AI permissions')
+  const plainUserName = `ai_plain_${Date.now().toString().slice(-8)}`
+  const plainPassword = 'Plain123!@#'
+  await apiRaw(token, '/system/user', 'POST', {
+    userName: plainUserName,
+    nickName: 'AI普通用户',
+    password: plainPassword,
+    deptId: 103,
+    status: '0',
+    roleIds: [],
+    postIds: [],
+    remark: 'AI settings boundary E2E'
+  }).then(({ payload }) => assert.equal(payload.code, 200, `Failed to create ordinary user: ${JSON.stringify(payload)}`))
+
+  const plainToken = await loginApi(plainUserName, plainPassword)
+  const plainProvider = await apiRaw(plainToken, '/ai/config/provider')
+  assert.equal(plainProvider.payload.code, 403, 'Ordinary user must not receive system AI configuration permission')
+  const plainEnabledModels = await apiRaw(plainToken, '/ai/config/models/enabled')
+  assert.equal(plainEnabledModels.payload.code, 200, 'Ordinary user must still be able to load enabled models')
+  const plainPrimaryModel = (plainEnabledModels.payload.data || []).find(item => item.modelCode === 'mock-agent-model')
+  assert.ok(plainPrimaryModel, 'Ordinary user enabled-model response must include the administrator-opened primary model')
+  assert.equal(plainPrimaryModel.reasoningCapability, 'SUPPORTED',
+    'Ordinary user enabled-model view must preserve reasoning capability metadata')
+  assert.ok(String(plainPrimaryModel.reasoningEfforts || '').split(',').includes('high'),
+    'Ordinary user enabled-model view must preserve supported reasoning efforts')
+
+  const plainInitialPreferences = await apiJson(plainToken, '/ai/preferences')
+  await apiJson(plainToken, '/ai/preferences', 'PUT', {
+    ...plainInitialPreferences,
+    defaultModelId: plainPrimaryModel.modelId,
+    defaultReasoningEffort: 'high'
+  })
+
+  const plainContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const plainPage = await plainContext.newPage()
+  await plainContext.addCookies([{ name: 'Admin-Token', value: plainToken, url: APP_URL }])
+  const plainSettingsRequests = []
+  const capturePlainSettingsRequest = request => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/dev-api/ai/') || path.startsWith('/ai/')) plainSettingsRequests.push(path)
+  }
+  plainPage.on('request', capturePlainSettingsRequest)
+  await plainPage.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await plainPage.locator('.ai-fab').click()
+  await assistantPanel(plainPage)
+  await plainPage.getByTestId('ai-assistant-settings').click()
+  const plainSettings = plainPage.locator('.quick-settings')
+  await plainSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
+  await plainSettings.getByText('我的默认模型', { exact: true }).waitFor()
+  await plainSettings.getByText('我的默认思考档位', { exact: true }).waitFor({ timeout: 10000 })
+  const plainPreferences = await apiJson(plainToken, '/ai/preferences')
+  assert.equal(Number(plainPreferences.defaultModelId), Number(plainPrimaryModel.modelId),
+    'Ordinary user personal default model must survive browser-side settings loading')
+  assert.equal(plainPreferences.defaultReasoningEffort, 'high',
+    'Ordinary user personal default reasoning must survive browser-side settings loading')
+  assert.equal(await plainSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
+  assert.equal(await plainSettings.getByText('系统模型', { exact: true }).count(), 0)
+  await plainPage.waitForTimeout(300)
+  assert.equal(plainSettingsRequests.some(path => path.endsWith('/ai/config/provider')), false)
+  assert.equal(plainSettingsRequests.some(path => path.endsWith('/ai/config/models')), false)
+  assert.ok(plainSettingsRequests.some(path => path.endsWith('/ai/config/models/enabled')))
+  plainPage.off('request', capturePlainSettingsRequest)
+  await plainContext.close()
+
+  const plainUserList = await apiRaw(token, `/system/user/list?userName=${encodeURIComponent(plainUserName)}&pageNum=1&pageSize=10`)
+  assert.equal(plainUserList.payload.code, 200)
+  const plainUser = (plainUserList.payload.rows || []).find(item => item.userName === plainUserName)
+  assert.ok(plainUser?.userId, 'Ordinary acceptance user must be discoverable for cleanup')
+  const plainDelete = await apiRaw(token, `/system/user/${plainUser.userId}`, 'DELETE')
+  assert.equal(plainDelete.payload.code, 200, 'Ordinary acceptance user cleanup must succeed')
+
+  console.log('4b. Reasoning none/max are preserved end-to-end and unsupported minimal stays hidden')
   const detectedModels = await apiJson(token, '/ai/config/models')
   const detectedPrimary = detectedModels.find(item => item.modelCode === 'mock-agent-model')
   assert.ok(detectedPrimary)
@@ -250,8 +340,13 @@ try {
 
   await runtimeInputs.nth(0).fill('72')
   await runtimeInputs.nth(1).fill('70')
+  const customRuntimeSave = page.waitForResponse(response => {
+    const path = new URL(response.url()).pathname
+    return path.endsWith('/runtime-settings') && response.request().method() === 'PUT'
+  })
   await runtimeDialog.getByRole('button', { name: '保存设置', exact: true }).click()
-  await page.getByText('模型高级设置已保存', { exact: true }).waitFor({ timeout: 10000 })
+  assert.ok((await customRuntimeSave).ok(), 'Custom runtime settings save must succeed')
+  await runtimeDialog.waitFor({ state: 'hidden', timeout: 10000 })
   let persistedModels = await apiJson(token, '/ai/config/models')
   let persistedPrimary = persistedModels.find(item => item.modelCode === 'mock-agent-model')
   assert.equal(persistedPrimary.contextWindowTokens, 72 * 1024)
@@ -267,8 +362,13 @@ try {
   assert.equal(await runtimeInputs.nth(1).inputValue(), '70')
   await runtimeDialog.getByTestId('ai-runtime-restore-recommended').click()
   await runtimeDialog.getByTestId('ai-runtime-recommended-summary').waitFor()
+  const recommendedRuntimeSave = page.waitForResponse(response => {
+    const path = new URL(response.url()).pathname
+    return path.endsWith('/runtime-settings') && response.request().method() === 'PUT'
+  })
   await runtimeDialog.getByRole('button', { name: '保存设置', exact: true }).click()
-  await page.getByText('模型高级设置已保存', { exact: true }).waitFor({ timeout: 10000 })
+  assert.ok((await recommendedRuntimeSave).ok(), 'Recommended runtime settings restore must succeed')
+  await runtimeDialog.waitFor({ state: 'hidden', timeout: 10000 })
   persistedModels = await apiJson(token, '/ai/config/models')
   persistedPrimary = persistedModels.find(item => item.modelCode === 'mock-agent-model')
   assert.equal(persistedPrimary.contextWindowTokens, 65536)
@@ -317,14 +417,30 @@ try {
   assert.equal(isolationResume.type, 'MESSAGE')
   assert.equal(isolationResume.message, 'ISOLATION:mock-agent-model:high')
 
-  console.log('7. Verify refined non-modal floating window and quick settings')
+  console.log('7. Verify refined non-modal floating window and personal quick settings')
+  const adminInitialPreferences = await apiJson(token, '/ai/preferences')
+  await apiJson(token, '/ai/preferences', 'PUT', {
+    ...adminInitialPreferences,
+    defaultModelId: primaryPreferenceModel.modelId,
+    defaultReasoningEffort: 'high'
+  })
   await page.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
   await page.locator('.ai-fab').click()
   let panel = await assistantPanel()
   assert.ok((await panel.getAttribute('class') || '').includes('floating'), 'AI should open as floating window')
   assert.equal(await page.locator('.el-overlay:visible').count(), 0, 'Floating AI window must not add a page mask')
   await page.getByTestId('ai-assistant-settings').click()
-  await page.getByPlaceholder('https://api.example.com/v1').waitFor({ timeout: 15000 })
+  const personalSettings = page.locator('.quick-settings')
+  await personalSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
+  await personalSettings.getByText('我的默认模型', { exact: true }).waitFor()
+  await personalSettings.getByText('我的默认思考档位', { exact: true }).waitFor({ timeout: 10000 })
+  const adminPreferencesAfterQuickSettings = await apiJson(token, '/ai/preferences')
+  assert.equal(Number(adminPreferencesAfterQuickSettings.defaultModelId), Number(primaryPreferenceModel.modelId),
+    'Administrator personal default model must persist as a user preference, not a system-model mutation')
+  assert.equal(adminPreferencesAfterQuickSettings.defaultReasoningEffort, 'high',
+    'Administrator personal default reasoning must persist independently of system defaults')
+  assert.equal(await personalSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
+  assert.equal(await personalSettings.getByText('系统模型', { exact: true }).count(), 0)
   await page.getByTestId('ai-assistant-settings').click()
   await page.getByPlaceholder('告诉 AI 你想做什么…').waitFor({ timeout: 15000 })
   await screenshot('phase3-ai-floating')
@@ -1207,6 +1323,33 @@ try {
   const ryToken = await loginApi('ry')
   const ryProvider = await apiRaw(ryToken, '/ai/config/provider')
   assert.equal(ryProvider.payload.code, 200)
+
+  const ryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  await ryContext.addCookies([{ name: 'Admin-Token', value: ryToken, url: APP_URL }])
+  const ryPage = await ryContext.newPage()
+  const rySettingsRequests = []
+  ryPage.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/dev-api/ai/') || path.startsWith('/ai/')) rySettingsRequests.push(path)
+  })
+  await ryPage.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await ryPage.locator('.ai-fab').click()
+  await assistantPanel(ryPage)
+  await ryPage.getByTestId('ai-assistant-settings').click()
+  const ryQuickSettings = ryPage.locator('.quick-settings')
+  await ryQuickSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
+  await ryQuickSettings.getByText('我的默认模型', { exact: true }).waitFor()
+  assert.equal(await ryQuickSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
+  assert.equal(await ryQuickSettings.getByText('系统模型', { exact: true }).count(), 0)
+  await ryPage.waitForTimeout(300)
+  assert.equal(rySettingsRequests.some(path => path.endsWith('/ai/config/provider')), false,
+    'A non-admin personal settings view must not request Provider configuration even when that account has config read permission')
+  assert.equal(rySettingsRequests.some(path => path.endsWith('/ai/config/models')), false,
+    'A non-admin personal settings view must not request the system model administration list')
+  assert.ok(rySettingsRequests.some(path => path.endsWith('/ai/config/models/enabled')),
+    'A non-admin personal settings view should load enabled models only')
+  await ryContext.close()
+
   const ryAudit = await apiRaw(ryToken, '/ai/admin/audit')
   assert.equal(ryAudit.payload.code, 403)
 
