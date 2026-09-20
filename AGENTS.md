@@ -47,7 +47,27 @@
 
 通用 Git 规则见 `.agents/rules/git-workflow.md`。跨仓库长期架构与关键决策见后端 `doc/ai/`。
 
-## 4. Page Capability / Tool Registry
+## 4. 五套运行环境
+
+前端环境与后端同名环境一一对应，不要跨环境混用。环境文件、用途和命令如下：
+
+| 环境 | 配置文件 | 用途 | 启动命令 | 构建命令 |
+| --- | --- | --- | --- | --- |
+| `local` | `.env.localhost` | 开发者本机联调，默认访问 `http://127.0.0.1:8080` 后端 | `npm run dev:local` | `npm run build:local` |
+| `dev` | `.env.dev` | 共享开发环境 | `npm run dev` | `npm run build:dev` |
+| `ci` | `.env.ci` | GitHub Actions、自动化测试和临时预览 | `npm run dev:ci` | `npm run build:ci` |
+| `test` | `.env.test` | 测试环境 | `npm run dev:test` | `npm run build:test` |
+| `prod` | `.env.prod` | 正式环境 | `npm run dev:prod` | `npm run build:prod` |
+
+使用和维护时遵守以下约束：
+
+- `npm run dev` 等价于选择 `dev`，不是本机环境；本机联调应明确执行 `npm run dev:local`，默认前端地址为 `http://127.0.0.1:5173`。
+- `.env.localhost` 是本机私有配置并被 `.gitignore` 精确忽略；不要改名为 Vite 会对所有模式额外加载的 `.env.local`，也不要提交本机地址或凭据变化。
+- `.env.dev`、`.env.ci`、`.env.test`、`.env.prod` 进入版本控制。部署或流水线需要不同地址时，修改对应环境文件，不要恢复已经移除的 `.env.development`、`.env.staging`、`.env.production`。
+- 代理目标、接口前缀、端口和是否自动打开浏览器以对应环境文件中的 `VITE_APP_BACKEND_URL`、`VITE_APP_BASE_API`、`VITE_APP_PORT`、`VITE_APP_OPEN` 为准，不在代码中另写一套环境判断。
+- 启动或构建前先确认配套后端使用同名 Spring Profile；GitHub Actions 固定使用 `ci`，本机前后端联调固定使用 `local`。
+
+## 5. Page Capability / Tool Registry
 
 新增或修改页面能力时应检查：
 
@@ -57,7 +77,7 @@
 
 不要为了 AI 再维护第二套页面业务事实。
 
-## 5. 当前前端主干
+## 6. 当前前端主干
 
 当前 AI 前端主要包括：
 
@@ -69,7 +89,7 @@
 
 仓库真实代码始终优先于历史文档快照；如果实现与已确认架构冲突，应明确指出并处理。
 
-## 6. Rule / Skill 的门槛
+## 7. Rule / Skill 的门槛
 
 只有稳定、重复、对本仓开发长期有价值的场景才新增 Rule 或 Skill。
 
