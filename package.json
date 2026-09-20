@@ -6,9 +6,17 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build:prod": "vite build",
-    "build:stage": "vite build --mode staging",
+    "dev": "vite --mode dev",
+    "dev:local": "vite --mode localhost",
+    "dev:ci": "vite --mode ci",
+    "dev:test": "vite --mode test",
+    "dev:prod": "vite --mode prod",
+    "build:local": "vite build --mode localhost",
+    "build:dev": "vite build --mode dev",
+    "build:ci": "vite build --mode ci",
+    "build:test": "vite build --mode test",
+    "build:stage": "vite build --mode test",
+    "build:prod": "vite build --mode prod",
     "preview": "vite preview"
   },
   "repository": {

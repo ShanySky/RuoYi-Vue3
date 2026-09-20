@@ -40,14 +40,21 @@ git clone https://github.com/yangzongzhuan/RuoYi-Vue3.git
 cd RuoYi-Vue3
 
 # 安装依赖
-yarn --registry=https://registry.npmmirror.com
+npm install
 
-# 启动服务
-yarn dev
+# 启动本地环境
+npm run dev:local
 
-# 构建测试环境 yarn build:stage
-# 构建生产环境 yarn build:prod
-# 前端访问地址 http://localhost:80
+# 启动开发环境 npm run dev
+# 启动 GitHub Actions 环境 npm run dev:ci
+# 启动测试环境 npm run dev:test
+# 启动正式环境 npm run dev:prod
+# 构建本地环境 npm run build:local
+# 构建开发环境 npm run build:dev
+# 构建 GitHub Actions 环境 npm run build:ci
+# 构建测试环境 npm run build:test
+# 构建生产环境 npm run build:prod
+# 本地访问地址 http://localhost:5173
 ```
 
 ## 内置功能
