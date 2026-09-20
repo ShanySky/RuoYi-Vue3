@@ -1,5 +1,9 @@
 import request from '@/utils/request'
 
+export function getAiConversationRunState(conversationId) {
+  return request({ url: `/ai/chat/conversations/${conversationId}/run-state`, method: 'get' })
+}
+
 export function sendAiTurn(data, options = {}) {
   return request({
     url: '/ai/chat/turn',

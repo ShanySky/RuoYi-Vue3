@@ -268,7 +268,7 @@ import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
 import { useConversationHistory } from './useConversationHistory'
 import {
-  cancelAiRun, cancelAiRunByClientKey, createAiConversation, getAiConversation, sendAiTurn, confirmAiServerTool
+  cancelAiRun, cancelAiRunByClientKey, createAiConversation, getAiConversationRunState, sendAiTurn, confirmAiServerTool
 } from '@/api/ai/chat'
 import {
   getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
@@ -368,7 +368,7 @@ async function monitorActiveRunStatus(generation, lifecycleEpoch) {
     const id = conversationId.value
     if (id) {
       try {
-        const res = await getAiConversation(id)
+        const res = await getAiConversationRunState(id)
         if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch || !busy.value) return
         const activeRun = res.data?.activeRun
         const status = activeRun?.status
@@ -704,6 +704,10 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
         if (!confirmed) throw 'cancel'
       }
       if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
+      if (serverOutcome?.continuationAllowed === false) {
+        append('tool', serverOutcome.notice)
+        return
+      }
       if (serverOutcome && serverOutcome.status !== 'SUCCEEDED') {
         throw new Error(serverOutcome.status === 'UNKNOWN' ? '业务结果未知，请查询核对，不能直接重试' : '业务操作未成功，助手将读取服务端结果')
       }
