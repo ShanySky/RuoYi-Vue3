@@ -1282,6 +1282,33 @@ try {
   const ryToken = await loginApi('ry')
   const ryProvider = await apiRaw(ryToken, '/ai/config/provider')
   assert.equal(ryProvider.payload.code, 200)
+
+  const ryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  await ryContext.addCookies([{ name: 'Admin-Token', value: ryToken, url: APP_URL }])
+  const ryPage = await ryContext.newPage()
+  const rySettingsRequests = []
+  ryPage.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/dev-api/ai/') || path.startsWith('/ai/')) rySettingsRequests.push(path)
+  })
+  await ryPage.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await ryPage.locator('.ai-fab').click()
+  await assistantPanel(ryPage)
+  await ryPage.getByTestId('ai-assistant-settings').click()
+  const ryQuickSettings = ryPage.locator('.quick-settings')
+  await ryQuickSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
+  await ryQuickSettings.getByText('我的默认模型', { exact: true }).waitFor()
+  assert.equal(await ryQuickSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
+  assert.equal(await ryQuickSettings.getByText('系统模型', { exact: true }).count(), 0)
+  await ryPage.waitForTimeout(300)
+  assert.equal(rySettingsRequests.some(path => path.endsWith('/ai/config/provider')), false,
+    'A non-admin personal settings view must not request Provider configuration even when that account has config read permission')
+  assert.equal(rySettingsRequests.some(path => path.endsWith('/ai/config/models')), false,
+    'A non-admin personal settings view must not request the system model administration list')
+  assert.ok(rySettingsRequests.some(path => path.endsWith('/ai/config/models/enabled')),
+    'A non-admin personal settings view should load enabled models only')
+  await ryContext.close()
+
   const ryAudit = await apiRaw(ryToken, '/ai/admin/audit')
   assert.equal(ryAudit.payload.code, 403)
 
