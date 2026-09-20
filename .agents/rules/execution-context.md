@@ -1,8 +1,6 @@
 # 执行上下文与能力边界
 
-> 类型：项目级 Rule
->
-> 类型补充：项目级 Rule mirror
+> 类型：项目级 Rule mirror
 >
 > Canonical source：`ShanySky/RuoYi-Vue/.agents/rules/execution-context.md`
 >
