@@ -49,23 +49,7 @@
 
 ## 4. 五套运行环境
 
-前端环境与后端同名环境一一对应，不要跨环境混用。环境文件、用途和命令如下：
-
-| 环境 | 配置文件 | 用途 | 启动命令 | 构建命令 |
-| --- | --- | --- | --- | --- |
-| `local` | `.env.localhost` | 开发者本机联调，默认访问 `http://127.0.0.1:8080` 后端 | `npm run dev:local` | `npm run build:local` |
-| `dev` | `.env.dev` | 共享开发环境 | `npm run dev` | `npm run build:dev` |
-| `ci` | `.env.ci` | GitHub Actions、自动化测试和临时预览 | `npm run dev:ci` | `npm run build:ci` |
-| `test` | `.env.test` | 测试环境 | `npm run dev:test` | `npm run build:test` |
-| `prod` | `.env.prod` | 正式环境 | `npm run dev:prod` | `npm run build:prod` |
-
-使用和维护时遵守以下约束：
-
-- `npm run dev` 等价于选择 `dev`，不是本机环境；本机联调应明确执行 `npm run dev:local`，默认前端地址为 `http://127.0.0.1:5173`。
-- `.env.localhost` 是本机私有配置并被 `.gitignore` 精确忽略；不要改名为 Vite 会对所有模式额外加载的 `.env.local`，也不要提交本机地址或凭据变化。
-- `.env.dev`、`.env.ci`、`.env.test`、`.env.prod` 进入版本控制。部署或流水线需要不同地址时，修改对应环境文件，不要恢复已经移除的 `.env.development`、`.env.staging`、`.env.production`。
-- 代理目标、接口前缀、端口和是否自动打开浏览器以对应环境文件中的 `VITE_APP_BACKEND_URL`、`VITE_APP_BASE_API`、`VITE_APP_PORT`、`VITE_APP_OPEN` 为准，不在代码中另写一套环境判断。
-- 启动或构建前先确认配套后端使用同名 Spring Profile；GitHub Actions 固定使用 `ci`，本机前后端联调固定使用 `local`。
+前端统一使用 `local`、`dev`、`ci`、`test`、`prod` 五套 Vite 模式，并与后端同名 Spring Profile 配套；具体配置和命令以 `package.json` 与对应环境文件为准，GitHub Actions 固定使用 `ci`。
 
 ## 5. Page Capability / Tool Registry
 
