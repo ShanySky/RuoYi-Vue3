@@ -11,7 +11,7 @@ assert.ok(PROVIDER_TOKEN, 'PROVIDER_TOKEN is required')
 
 mkdirSync('test-results', { recursive: true })
 
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined })
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 const page = await context.newPage()
 
@@ -598,8 +598,9 @@ try {
   await page.getByTestId('ai-assistant-settings').click()
 
   console.log('14a. Automatic compaction shows a lightweight status and continues without a modal')
+  // 真实工具模式及输出预留已计入预算；16K 可容纳首轮，第二轮仍必须触发并持久化压缩。
   await apiJson(token, `/ai/config/models/${primaryModel.modelId}/runtime-settings`, 'PUT', {
-    contextWindowTokens: 8192,
+    contextWindowTokens: 16384,
     autoCompaction: true,
     compactionThresholdPercent: 50
   })

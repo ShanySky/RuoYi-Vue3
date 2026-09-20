@@ -176,6 +176,7 @@
             <div v-if="pendingConfirmation" class="write-confirm-card" data-testid="ai-write-confirmation">
               <div class="write-confirm-title">需要确认写入操作</div>
               <div class="write-confirm-description">{{ pendingConfirmation.description }}</div>
+              <pre v-if="pendingConfirmation.serverArguments" class="write-confirm-arguments">{{ pendingConfirmation.serverArguments }}</pre>
               <div class="write-confirm-actions">
                 <el-button size="small" @click="resolveWriteConfirmation(false)">取消</el-button>
                 <el-button size="small" type="warning" @click="resolveWriteConfirmation(true)">确认执行</el-button>
@@ -267,7 +268,7 @@ import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
 import { useConversationHistory } from './useConversationHistory'
 import {
-  cancelAiRun, cancelAiRunByClientKey, createAiConversation, getAiConversation, sendAiTurn
+  cancelAiRun, cancelAiRunByClientKey, createAiConversation, getAiConversation, sendAiTurn, confirmAiServerTool
 } from '@/api/ai/chat'
 import {
   getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
@@ -521,7 +522,8 @@ function requestWriteConfirmation(call) {
   pendingConfirmation.value = {
     callId: call.callId,
     description: call.description || call.name,
-    riskLevel: call.riskLevel
+    riskLevel: call.riskLevel,
+    serverArguments: call.executionSide === 'SERVER' ? JSON.stringify(JSON.parse(call.arguments || '{}'), null, 2) : null
   }
   return new Promise(resolve => {
     pendingConfirmationResolve = resolve
@@ -691,15 +693,22 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
     let success = true
     let result = null
     let error = null
+    let serverOutcome = null
     try {
       if (call.riskLevel === 'WRITE' || call.riskLevel === 'DANGEROUS_WRITE') {
         const confirmed = await requestWriteConfirmation(call)
         if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
+        if (call.executionSide === 'SERVER') {
+          serverOutcome = (await confirmAiServerTool(data.conversationId, call.callId, confirmed, { signal })).data
+        }
         if (!confirmed) throw 'cancel'
       }
       if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
+      if (serverOutcome && serverOutcome.status !== 'SUCCEEDED') {
+        throw new Error(serverOutcome.status === 'UNKNOWN' ? '业务结果未知，请查询核对，不能直接重试' : '业务操作未成功，助手将读取服务端结果')
+      }
       const args = call.arguments ? JSON.parse(call.arguments) : {}
-      result = await invokeFrontendTool(call.name, args, {
+      result = call.executionSide === 'SERVER' ? null : await invokeFrontendTool(call.name, args, {
         capabilityProtocol: payload.capabilityProtocol,
         pageId: payload.pageId,
         route: payload.route,
@@ -716,7 +725,7 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
     }
 
     if (generation !== runGeneration || lifecycleEpoch !== aiStore.lifecycleEpoch) return
-    workingText.value = 'AI 正在读取页面执行结果…'
+    workingText.value = call.executionSide === 'SERVER' ? 'AI 正在读取业务执行结果…' : 'AI 正在读取页面执行结果…'
     const resultPayload = buildRequest({ toolResult: { callId: call.callId, success, result, error } })
     const currentRuntime = {
       capabilityProtocol: resultPayload.capabilityProtocol,
@@ -1030,6 +1039,7 @@ onBeforeUnmount(() => {
   border-radius: 7px;
 }
 .write-confirm-title { color: var(--el-color-warning-dark-2); font-size: 12px; font-weight: 600; }
+.write-confirm-arguments { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .write-confirm-description { margin-top: 4px; font-size: var(--ai-chat-font-size, 13px); line-height: 1.55; }
 .write-confirm-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 8px; }
 .write-confirm-actions :deep(.el-button + .el-button) { margin-left: 0; }

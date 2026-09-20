@@ -11,6 +11,17 @@ export function sendAiTurn(data, options = {}) {
   })
 }
 
+export function confirmAiServerTool(conversationId, callId, approved, options = {}) {
+  return request({
+    url: `/ai/chat/conversations/${conversationId}/server-tools/${encodeURIComponent(callId)}/confirm`,
+    method: 'post',
+    data: { approved },
+    timeout: 45000,
+    headers: { repeatSubmit: false },
+    signal: options.signal
+  })
+}
+
 export function createAiConversation(data = {}) {
   return request({
     url: '/ai/chat/conversations',
