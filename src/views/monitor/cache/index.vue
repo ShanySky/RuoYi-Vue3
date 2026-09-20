@@ -69,6 +69,7 @@ import { getCache } from '@/api/monitor/cache'
 import * as echarts from 'echarts'
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { monitorCachePageContract } from "@/ai/pages/monitorPageCapabilities"
 
 const cache = ref([])
 const commandstats = ref(null)
@@ -151,26 +152,19 @@ function cacheSnapshot() {
 }
 
 const cacheAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '缓存监控',
-  toolPrefix: 'page_monitor_cache',
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'monitor:cache:list',
-      label: '查看 Redis 缓存运行指标',
-      handler: async () => {
+  contract: monitorCachePageContract,
+  bindings: {
+    actions: {
+      view: async () => {
         if (!cache.value?.info) await getList()
         return cacheSnapshot()
       }
-    }
-  ],
-  getContext: () => cacheSnapshot()
+    },
+    getContext: () => cacheSnapshot()
+  }
 })
 
-useAiPageTools('monitor-cache', cacheAiCapabilities.tools, cacheAiCapabilities.getContext, {
-  route: '/monitor/cache',
-  pageName: '缓存监控'
-})
+useAiPageTools(monitorCachePageContract, cacheAiCapabilities.tools, cacheAiCapabilities.getContext)
 
 getList()
 </script>

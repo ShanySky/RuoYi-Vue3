@@ -157,6 +157,7 @@ import OperlogDetail from './detail'
 import { list, delOperlog, cleanOperlog } from "@/api/monitor/operlog"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { monitorOperlogPageContract } from "@/ai/pages/monitorPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_oper_type, sys_common_status } = useDict("sys_oper_type", "sys_common_status")
@@ -264,97 +265,62 @@ function handleExport() {
 
 
 const operlogAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '操作日志',
-  toolPrefix: 'page_monitor_operlog',
-  queryFields: [
-    { key: 'operIp', label: '操作地址' },
-    { key: 'title', label: '系统模块' },
-    { key: 'operName', label: '操作人员' },
-    { key: 'businessType', label: '操作类型', type: 'integer' },
-    { key: 'status', label: '操作状态', options: ['0', '1'] },
-    { key: 'dateRange', label: '操作时间范围', type: 'array', itemType: 'string' },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  query: {
-    permission: 'monitor:operlog:list',
-    apply: async args => {
-      for (const key of ['operIp', 'title', 'operName', 'businessType', 'status', 'pageNum', 'pageSize']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+  contract: monitorOperlogPageContract,
+  bindings: {
+    query: {
+      apply: async args => {
+        for (const key of ['operIp', 'title', 'operName', 'businessType', 'status', 'pageNum', 'pageSize']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+        }
+        if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+      },
+      run: getList,
+      reset: async () => {
+        dateRange.value = []
+        Object.assign(queryParams.value, {
+          pageNum: 1, pageSize: 10, operIp: undefined, title: undefined, operName: undefined,
+          businessType: undefined, status: undefined, orderByColumn: undefined, isAsc: undefined
+        })
+        return getList()
       }
-      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
     },
-    run: getList,
-    reset: async () => {
-      dateRange.value = []
-      Object.assign(queryParams.value, {
-        pageNum: 1, pageSize: 10, operIp: undefined, title: undefined, operName: undefined,
-        businessType: undefined, status: undefined, orderByColumn: undefined, isAsc: undefined
-      })
-      return getList()
-    }
-  },
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'monitor:operlog:query',
-      label: '查看操作日志详情',
-      inputSchema: { type: 'object', properties: { operId: { type: 'integer' } }, required: ['operId'], additionalProperties: false },
-      handler: async ({ operId }) => {
+    actions: {
+      view: async ({ operId }) => {
         const row = operlogList.value.find(item => item.operId === operId)
         if (!row) throw new Error('当前列表中未找到该操作日志')
         handleDetail(row)
         return { opened: true, operId, detail: { ...row } }
-      }
-    },
-    {
-      suffix: 'delete',
-      permission: 'monitor:operlog:remove',
-      label: '删除操作日志',
-      inputSchema: { type: 'object', properties: { operIds: { type: 'array', items: { type: 'integer' } } }, required: ['operIds'], additionalProperties: false },
-      handler: async ({ operIds }) => {
+      },
+      delete: async ({ operIds }) => {
         if (!Array.isArray(operIds) || !operIds.length) throw new Error('没有可删除的操作日志ID')
         await delOperlog(operIds.join(','))
         await getList()
         return { deletedOperIds: operIds }
-      }
-    },
-    {
-      suffix: 'clean',
-      permission: 'monitor:operlog:remove',
-      label: '清空全部操作日志',
-      handler: async () => {
+      },
+      clean: async () => {
         await cleanOperlog()
         await getList()
         return { cleaned: true }
-      }
-    },
-    {
-      suffix: 'export',
-      permission: 'monitor:operlog:export',
-      label: '按当前查询条件导出操作日志',
-      handler: async () => {
+      },
+      export: async () => {
         handleExport()
         return { started: true, query: { ...queryParams.value }, dateRange: [...dateRange.value] }
       }
-    }
-  ],
-  getRows: () => operlogList.value.slice(0, 50).map(item => ({ ...item })),
-  getTotal: () => total.value,
-  getSelectedIds: () => [...ids.value],
-  getContext: () => ({
-    query: { ...queryParams.value },
-    dateRange: [...dateRange.value],
-    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
-    detailVisible: detailVisible.value,
-    detail: detailVisible.value ? { ...detailRow.value } : null
-  })
+    },
+    getRows: () => operlogList.value.slice(0, 50).map(item => ({ ...item })),
+    getTotal: () => total.value,
+    getSelectedIds: () => [...ids.value],
+    getContext: () => ({
+      query: { ...queryParams.value },
+      dateRange: [...dateRange.value],
+      pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+      detailVisible: detailVisible.value,
+      detail: detailVisible.value ? { ...detailRow.value } : null
+    })
+  }
 })
 
-useAiPageTools('monitor-operlog', operlogAiCapabilities.tools, operlogAiCapabilities.getContext, {
-  route: '/monitor/operlog',
-  pageName: '操作日志'
-})
+useAiPageTools(monitorOperlogPageContract, operlogAiCapabilities.tools, operlogAiCapabilities.getContext)
 
 getList()
 </script>

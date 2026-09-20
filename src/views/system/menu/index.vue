@@ -311,6 +311,7 @@ import SvgIcon from "@/components/SvgIcon"
 import IconSelect from "@/components/IconSelect"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemMenuPageContract } from "@/ai/pages/systemPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_show_hide, sys_normal_disable } = useDict("sys_show_hide", "sys_normal_disable")
@@ -511,81 +512,33 @@ function handleDelete(row) {
 
 
 const menuAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '菜单管理',
-  toolPrefix: 'page_system_menu',
-  queryFields: [
-    { key: 'menuName', label: '菜单名称' },
-    { key: 'visible', label: '显示状态', options: ['0', '1'], description: '0显示，1隐藏' }
-  ],
-  formFields: [
-    { key: 'parentId', label: '上级菜单ID', type: 'integer' },
-    { key: 'menuType', label: '菜单类型', options: ['M', 'C', 'F'], required: true },
-    { key: 'icon', label: '菜单图标' },
-    { key: 'orderNum', label: '显示排序', type: 'integer', required: true, inputSchema: { type: 'integer', minimum: 0 } },
-    { key: 'menuName', label: '菜单名称', required: true },
-    { key: 'routeName', label: '路由名称' },
-    { key: 'isFrame', label: '是否外链', options: ['0', '1'], description: '0是，1否' },
-    { key: 'path', label: '路由地址' },
-    { key: 'component', label: '组件路径' },
-    { key: 'perms', label: '权限字符' },
-    { key: 'query', label: '路由参数' },
-    { key: 'isCache', label: '是否缓存', options: ['0', '1'], description: '0缓存，1不缓存' },
-    { key: 'visible', label: '显示状态', options: ['0', '1'] },
-    { key: 'status', label: '菜单状态', options: ['0', '1'] }
-  ],
-  query: {
-    permission: 'system:menu:list',
-    apply: async args => {
-      for (const key of ['menuName', 'visible']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
-    },
-    run: getList,
-    reset: resetQuery
-  },
-  form: {
-    addPermission: 'system:menu:add',
-    editPermission: 'system:menu:edit',
-    recordIdKey: 'menuId',
-    recordIdLabel: '菜单ID',
-    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
-    openEdit: menuId => handleUpdate({ menuId }),
-    snapshot: () => ({ ...form.value }),
-    setFields: async args => {
-      const allowed = ['parentId', 'menuType', 'icon', 'orderNum', 'menuName', 'routeName', 'isFrame', 'path', 'component', 'perms', 'query', 'isCache', 'visible', 'status']
-      const changedFields = []
-      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
-        form.value[key] = args[key]
-        changedFields.push(key)
-      }
-      await nextTick()
-      return { changedFields, saved: false, form: { ...form.value } }
-    },
-    submit: submitFormCore
-  },
-  actions: [
-    {
-      suffix: 'sort_submit',
-      permission: 'system:menu:edit',
-      label: '保存菜单显示排序',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                menuId: { type: 'integer' },
-                orderNum: { type: 'integer', minimum: 0 }
-              },
-              required: ['menuId', 'orderNum'],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ['items'],
-        additionalProperties: false
+  contract: systemMenuPageContract,
+  bindings: {
+    query: {
+      apply: async args => {
+        for (const key of ['menuName', 'visible']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
       },
-      handler: async ({ items }) => {
+      run: getList,
+      reset: resetQuery
+    },
+    form: {
+      openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+      openEdit: menuId => handleUpdate({ menuId }),
+      snapshot: () => ({ ...form.value }),
+      setFields: async args => {
+        const allowed = ['parentId', 'menuType', 'icon', 'orderNum', 'menuName', 'routeName', 'isFrame', 'path', 'component', 'perms', 'query', 'isCache', 'visible', 'status']
+        const changedFields = []
+        for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+          form.value[key] = args[key]
+          changedFields.push(key)
+        }
+        await nextTick()
+        return { changedFields, saved: false, form: { ...form.value } }
+      },
+      submit: submitFormCore
+    },
+    actions: {
+      sort_submit: async ({ items }) => {
         const values = Array.isArray(items) ? items : []
         if (!values.length) throw new Error('没有可保存的排序项')
         const ids = values.map(item => Number(item.menuId))
@@ -596,33 +549,24 @@ const menuAiCapabilities = createAiCrudPageCapabilities({
         await updateMenuSort({ menuIds: ids.join(','), orderNums: orderNums.join(',') })
         await getList()
         return { saved: true, items: values }
-      }
-    },
-    {
-      suffix: 'delete',
-      permission: 'system:menu:remove',
-      label: '删除菜单',
-      inputSchema: { type: 'object', properties: { menuId: { type: 'integer' } }, required: ['menuId'], additionalProperties: false },
-      handler: async ({ menuId }) => {
+      },
+      delete: async ({ menuId }) => {
         await delMenu(menuId)
         await getList()
         return { deletedMenuId: menuId }
       }
-    }
-  ],
-  getRows: () => menuList.value.slice(0, 50).map(item => ({ ...item })),
-  getContext: () => ({
-    query: { ...queryParams.value },
-    treeRows: menuList.value.slice(0, 50).map(item => ({ ...item })),
-    open: open.value,
-    form: open.value ? { ...form.value } : null
-  })
+    },
+    getRows: () => menuList.value.slice(0, 50).map(item => ({ ...item })),
+    getContext: () => ({
+      query: { ...queryParams.value },
+      treeRows: menuList.value.slice(0, 50).map(item => ({ ...item })),
+      open: open.value,
+      form: open.value ? { ...form.value } : null
+    })
+  }
 })
 
-useAiPageTools('system-menu', menuAiCapabilities.tools, menuAiCapabilities.getContext, {
-  route: '/system/menu',
-  pageName: '菜单管理'
-})
+useAiPageTools(systemMenuPageContract, menuAiCapabilities.tools, menuAiCapabilities.getContext)
 
 getList()
 </script>

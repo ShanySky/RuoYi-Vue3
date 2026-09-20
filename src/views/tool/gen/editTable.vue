@@ -128,6 +128,7 @@ import basicInfoForm from "./basicInfoForm"
 import genInfoForm from "./genInfoForm"
 import Sortable from 'sortablejs'
 import { createAiCrudPageCapabilities } from '@/ai/crudPageCapabilities'
+import { toolGenEditPageContract } from "@/ai/pages/toolPageCapabilities"
 import { useAiPageTools } from '@/ai/toolRegistry'
 
 const route = useRoute()
@@ -236,52 +237,16 @@ function codegenColumnSnapshot(column) {
 }
 
 const codegenEditAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '修改生成配置',
-  toolPrefix: 'page_tool_gen_edit',
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'tool:gen:query',
-      label: '查看当前生成配置',
-      handler: async () => ({
+  contract: toolGenEditPageContract,
+  bindings: {
+    actions: {
+      view: async () => ({
         activeTab: activeName.value,
         info: codegenInfoSnapshot(),
         columns: columns.value.map(codegenColumnSnapshot),
         dictOptions: dictOptions.value.map(item => ({ dictName: item.dictName, dictType: item.dictType }))
-      })
-    },
-    {
-      suffix: 'set_info',
-      permission: 'tool:gen:edit',
-      label: '修改代码生成基础与生成信息但不保存',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          tableName: { type: 'string' },
-          tableComment: { type: 'string' },
-          className: { type: 'string' },
-          functionAuthor: { type: 'string' },
-          remark: { type: 'string' },
-          tplCategory: { type: 'string', enum: ['crud', 'tree', 'sub'] },
-          tplWebType: { type: 'string', enum: ['element-ui', 'element-plus', 'element-plus-typescript'] },
-          packageName: { type: 'string' },
-          moduleName: { type: 'string' },
-          businessName: { type: 'string' },
-          functionName: { type: 'string' },
-          formColNum: { type: 'integer', enum: [1, 2, 3] },
-          view: { type: 'boolean' },
-          genType: { type: 'string', enum: ['0', '1'] },
-          genPath: { type: 'string' },
-          parentMenuId: { type: 'integer' },
-          treeCode: { type: 'string' },
-          treeParentCode: { type: 'string' },
-          treeName: { type: 'string' },
-          subTableName: { type: 'string' },
-          subTableFkName: { type: 'string' }
-        },
-        additionalProperties: false
-      },
-      handler: async args => {
+      }),
+      set_info: async args => {
         const allowed = ['tableName','tableComment','className','functionAuthor','remark','tplCategory','tplWebType',
           'packageName','moduleName','businessName','functionName','formColNum','view','genType','genPath','parentMenuId',
           'treeCode','treeParentCode','treeName','subTableName','subTableFkName']
@@ -290,32 +255,8 @@ const codegenEditAiCapabilities = createAiCrudPageCapabilities({
         }
         await nextTick()
         return { saved: false, info: codegenInfoSnapshot() }
-      }
-    },
-    {
-      suffix: 'set_column',
-      permission: 'tool:gen:edit',
-      label: '修改指定生成字段配置但不保存',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          columnId: { type: 'integer' },
-          columnComment: { type: 'string' },
-          javaType: { type: 'string', enum: ['Long','String','Integer','Double','BigDecimal','Date','Boolean'] },
-          javaField: { type: 'string' },
-          isInsert: { type: 'string', enum: ['0','1'] },
-          isEdit: { type: 'string', enum: ['0','1'] },
-          isList: { type: 'string', enum: ['0','1'] },
-          isQuery: { type: 'string', enum: ['0','1'] },
-          queryType: { type: 'string', enum: ['EQ','NE','GT','GTE','LT','LTE','LIKE','BETWEEN'] },
-          isRequired: { type: 'string', enum: ['0','1'] },
-          htmlType: { type: 'string', enum: ['input','textarea','select','radio','checkbox','datetime','imageUpload','fileUpload','editor'] },
-          dictType: { type: ['string','null'] }
-        },
-        required: ['columnId'],
-        additionalProperties: false
       },
-      handler: async args => {
+      set_column: async args => {
         const column = columns.value.find(item => Number(item.columnId) === Number(args.columnId))
         if (!column) throw new Error('未找到指定字段')
         const allowed = ['columnComment','javaType','javaField','isInsert','isEdit','isList','isQuery','queryType','isRequired','htmlType','dictType']
@@ -324,19 +265,8 @@ const codegenEditAiCapabilities = createAiCrudPageCapabilities({
         }
         await nextTick()
         return { saved: false, column: codegenColumnSnapshot(column) }
-      }
-    },
-    {
-      suffix: 'reorder_columns',
-      permission: 'tool:gen:edit',
-      label: '重排生成字段',
-      inputSchema: {
-        type: 'object',
-        properties: { columnIds: { type: 'array', items: { type: 'integer' } } },
-        required: ['columnIds'],
-        additionalProperties: false
       },
-      handler: async ({ columnIds }) => {
+      reorder_columns: async ({ columnIds }) => {
         const requested = Array.isArray(columnIds) ? columnIds.map(Number) : []
         const existing = columns.value.map(item => Number(item.columnId))
         if (requested.length !== existing.length || new Set(requested).size !== existing.length || existing.some(id => !requested.includes(id))) {
@@ -349,44 +279,27 @@ const codegenEditAiCapabilities = createAiCrudPageCapabilities({
           return column
         })
         return { saved: false, columnIds: requested }
-      }
-    },
-    {
-      suffix: 'select_tab',
-      permission: 'tool:gen:query',
-      label: '切换生成配置页签',
-      inputSchema: {
-        type: 'object',
-        properties: { tab: { type: 'string', enum: ['basic', 'columnInfo', 'genInfo'] } },
-        required: ['tab'],
-        additionalProperties: false
       },
-      handler: async ({ tab }) => {
+      select_tab: async ({ tab }) => {
         activeName.value = tab
         await nextTick()
         return { activeTab: activeName.value }
-      }
+      },
+      submit: submitFormCore
     },
-    {
-      suffix: 'submit',
-      permission: 'tool:gen:edit',
-      label: '提交代码生成配置',
-      handler: submitFormCore
-    }
-  ],
-  getContext: () => ({
-    tableId: Number(route.params?.tableId),
-    activeTab: activeName.value,
-    info: codegenInfoSnapshot(),
-    columns: columns.value.map(codegenColumnSnapshot),
-    dictOptions: dictOptions.value.map(item => ({ dictName: item.dictName, dictType: item.dictType })),
-    relatedTables: tables.value.map(item => ({ tableName: item.tableName, tableComment: item.tableComment }))
-  })
+    getContext: () => ({
+      tableId: Number(route.params?.tableId),
+      activeTab: activeName.value,
+      info: codegenInfoSnapshot(),
+      columns: columns.value.map(codegenColumnSnapshot),
+      dictOptions: dictOptions.value.map(item => ({ dictName: item.dictName, dictType: item.dictType })),
+      relatedTables: tables.value.map(item => ({ tableName: item.tableName, tableComment: item.tableComment }))
+    })
+  }
 })
 
-useAiPageTools('tool.gen.edit', codegenEditAiCapabilities.tools, codegenEditAiCapabilities.getContext, {
-  route: route.path,
-  pageName: '修改生成配置'
+useAiPageTools(toolGenEditPageContract, codegenEditAiCapabilities.tools, codegenEditAiCapabilities.getContext, {
+  route: route.path
 })
 
 (() => {

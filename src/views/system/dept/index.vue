@@ -157,6 +157,7 @@
 import { listDept, getDept, delDept, addDept, updateDept, updateDeptSort, listDeptExcludeChild } from "@/api/system/dept"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemDeptPageContract } from "@/ai/pages/systemPageCapabilities"
 
 const { proxy } = getCurrentInstance()
 const { sys_normal_disable } = useDict("sys_normal_disable")
@@ -337,74 +338,33 @@ function handleDelete(row) {
 
 
 const deptAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '部门管理',
-  toolPrefix: 'page_system_dept',
-  queryFields: [
-    { key: 'deptName', label: '部门名称' },
-    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' }
-  ],
-  formFields: [
-    { key: 'parentId', label: '上级部门ID', type: 'integer', required: true },
-    { key: 'deptName', label: '部门名称', required: true, inputSchema: { type: 'string', minLength: 1, maxLength: 30 } },
-    { key: 'orderNum', label: '显示排序', type: 'integer', required: true, inputSchema: { type: 'integer', minimum: 0 } },
-    { key: 'leader', label: '负责人' },
-    { key: 'phone', label: '联系电话', inputSchema: { type: 'string', pattern: '^1[3-9][0-9]{9}$' } },
-    { key: 'email', label: '邮箱', inputSchema: { type: 'string', format: 'email' } },
-    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' }
-  ],
-  query: {
-    permission: 'system:dept:list',
-    apply: async args => {
-      for (const key of ['deptName', 'status']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
-    },
-    run: getList,
-    reset: resetQuery
-  },
-  form: {
-    addPermission: 'system:dept:add',
-    editPermission: 'system:dept:edit',
-    recordIdKey: 'deptId',
-    recordIdLabel: '部门ID',
-    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
-    openEdit: deptId => handleUpdate({ deptId }),
-    snapshot: () => ({ ...form.value }),
-    setFields: async args => {
-      const allowed = ['parentId', 'deptName', 'orderNum', 'leader', 'phone', 'email', 'status']
-      const changedFields = []
-      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
-        form.value[key] = args[key]
-        changedFields.push(key)
-      }
-      await nextTick()
-      return { changedFields, saved: false, form: { ...form.value } }
-    },
-    submit: submitFormCore
-  },
-  actions: [
-    {
-      suffix: 'sort_submit',
-      permission: 'system:dept:edit',
-      label: '保存部门显示排序',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                deptId: { type: 'integer' },
-                orderNum: { type: 'integer', minimum: 0 }
-              },
-              required: ['deptId', 'orderNum'],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ['items'],
-        additionalProperties: false
+  contract: systemDeptPageContract,
+  bindings: {
+    query: {
+      apply: async args => {
+        for (const key of ['deptName', 'status']) if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
       },
-      handler: async ({ items }) => {
+      run: getList,
+      reset: resetQuery
+    },
+    form: {
+      openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+      openEdit: deptId => handleUpdate({ deptId }),
+      snapshot: () => ({ ...form.value }),
+      setFields: async args => {
+        const allowed = ['parentId', 'deptName', 'orderNum', 'leader', 'phone', 'email', 'status']
+        const changedFields = []
+        for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+          form.value[key] = args[key]
+          changedFields.push(key)
+        }
+        await nextTick()
+        return { changedFields, saved: false, form: { ...form.value } }
+      },
+      submit: submitFormCore
+    },
+    actions: {
+      sort_submit: async ({ items }) => {
         const values = Array.isArray(items) ? items : []
         if (!values.length) throw new Error('没有可保存的排序项')
         const ids = values.map(item => Number(item.deptId))
@@ -415,33 +375,24 @@ const deptAiCapabilities = createAiCrudPageCapabilities({
         await updateDeptSort({ deptIds: ids.join(','), orderNums: orderNums.join(',') })
         await getList()
         return { saved: true, items: values }
-      }
-    },
-    {
-      suffix: 'delete',
-      permission: 'system:dept:remove',
-      label: '删除部门',
-      inputSchema: { type: 'object', properties: { deptId: { type: 'integer' } }, required: ['deptId'], additionalProperties: false },
-      handler: async ({ deptId }) => {
+      },
+      delete: async ({ deptId }) => {
         await delDept(deptId)
         await getList()
         return { deletedDeptId: deptId }
       }
-    }
-  ],
-  getRows: () => deptList.value.slice(0, 50).map(item => ({ ...item })),
-  getContext: () => ({
-    query: { ...queryParams.value },
-    treeRows: deptList.value.slice(0, 50).map(item => ({ ...item })),
-    open: open.value,
-    form: open.value ? { ...form.value } : null
-  })
+    },
+    getRows: () => deptList.value.slice(0, 50).map(item => ({ ...item })),
+    getContext: () => ({
+      query: { ...queryParams.value },
+      treeRows: deptList.value.slice(0, 50).map(item => ({ ...item })),
+      open: open.value,
+      form: open.value ? { ...form.value } : null
+    })
+  }
 })
 
-useAiPageTools('system-dept', deptAiCapabilities.tools, deptAiCapabilities.getContext, {
-  route: '/system/dept',
-  pageName: '部门管理'
-})
+useAiPageTools(systemDeptPageContract, deptAiCapabilities.tools, deptAiCapabilities.getContext)
 
 getList()
 </script>

@@ -142,6 +142,7 @@ import JobDetail from './detail'
 import { getJob } from "@/api/monitor/job"
 import { listJobLog, delJobLog, cleanJobLog } from "@/api/monitor/jobLog"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { monitorJobLogPageContract } from "@/ai/pages/monitorPageCapabilities"
 import { useAiPageTools } from "@/ai/toolRegistry"
 
 const { proxy } = getCurrentInstance()
@@ -243,94 +244,67 @@ function dictOptions(source) {
 }
 
 const jobLogAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '调度日志',
-  toolPrefix: 'page_monitor_job_log',
-  queryFields: [
-    { key: 'jobName', label: '任务名称' },
-    { key: 'jobGroup', label: '任务组', options: () => dictOptions(sys_job_group) },
-    { key: 'status', label: '执行状态', options: () => dictOptions(sys_common_status) },
-    { key: 'dateRange', label: '执行时间范围', type: 'array', itemType: 'string' },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  query: {
-    permission: 'monitor:job:list',
-    apply: async args => {
-      for (const key of ['jobName', 'jobGroup', 'status', 'pageNum', 'pageSize']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
-      }
-      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
-      queryParams.value.pageNum = Number(queryParams.value.pageNum || 1)
+  contract: monitorJobLogPageContract,
+  bindings: {
+    queryFields: {
+      jobGroup: { options: () => dictOptions(sys_job_group) },
+      status: { options: () => dictOptions(sys_common_status) }
     },
-    run: getList,
-    reset: async () => {
-      Object.assign(queryParams.value, { pageNum: 1, pageSize: 10, jobName: undefined, jobGroup: undefined, status: undefined })
-      dateRange.value = []
-      return getList()
+    query: {
+      apply: async args => {
+        for (const key of ['jobName', 'jobGroup', 'status', 'pageNum', 'pageSize']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+        }
+        if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
+        queryParams.value.pageNum = Number(queryParams.value.pageNum || 1)
+      },
+      run: getList,
+      reset: async () => {
+        Object.assign(queryParams.value, { pageNum: 1, pageSize: 10, jobName: undefined, jobGroup: undefined, status: undefined })
+        dateRange.value = []
+        return getList()
+      },
+      result: () => ({ total: total.value, rows: jobLogList.value.map(item => ({ ...item })) })
     },
-    result: () => ({ total: total.value, rows: jobLogList.value.map(item => ({ ...item })) })
-  },
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'monitor:job:query',
-      label: '查看调度日志详情',
-      inputSchema: { type: 'object', properties: { jobLogId: { type: 'integer' } }, required: ['jobLogId'], additionalProperties: false },
-      handler: async ({ jobLogId }) => {
+    actions: {
+      view: async ({ jobLogId }) => {
         const row = jobLogList.value.find(item => item.jobLogId === jobLogId)
         if (!row) throw new Error('当前列表中未找到该调度日志')
         handleView(row)
         return { opened: true, jobLogId, detail: { ...row } }
-      }
-    },
-    {
-      suffix: 'delete',
-      permission: 'monitor:job:remove',
-      label: '删除调度日志',
-      inputSchema: { type: 'object', properties: { jobLogIds: { type: 'array', items: { type: 'integer' } } }, required: ['jobLogIds'], additionalProperties: false },
-      handler: async ({ jobLogIds }) => {
+      },
+      delete: async ({ jobLogIds }) => {
         const values = Array.isArray(jobLogIds) ? [...new Set(jobLogIds.filter(Boolean))] : []
         if (!values.length) throw new Error('没有可删除的调度日志ID')
         await delJobLog(values.join(','))
         await getList()
         return { deletedJobLogIds: values }
-      }
-    },
-    {
-      suffix: 'clean',
-      permission: 'monitor:job:remove',
-      label: '清空全部调度日志',
-      handler: async () => {
+      },
+      clean: async () => {
         await cleanJobLog()
         await getList()
         return { cleaned: true }
-      }
-    },
-    {
-      suffix: 'export',
-      permission: 'monitor:job:export',
-      label: '按当前查询条件导出调度日志',
-      handler: async () => {
+      },
+      export: async () => {
         handleExport()
         return { started: true, query: { ...queryParams.value }, dateRange: [...dateRange.value] }
       }
-    }
-  ],
-  getRows: () => jobLogList.value.map(item => ({ ...item })),
-  getTotal: () => total.value,
-  getSelectedIds: () => [...ids.value],
-  getContext: () => ({
-    query: { ...queryParams.value },
-    dateRange: [...dateRange.value],
-    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
-    detailVisible: open.value,
-    detail: open.value ? { ...form.value } : null
-  })
+    },
+    getRows: () => jobLogList.value.map(item => ({ ...item })),
+    getTotal: () => total.value,
+    getSelectedIds: () => [...ids.value],
+    getContext: () => ({
+      query: { ...queryParams.value },
+      dateRange: [...dateRange.value],
+      pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+      detailVisible: open.value,
+      detail: open.value ? { ...form.value } : null
+    })
+  }
 })
 
-useAiPageTools('monitor.job.log', jobLogAiCapabilities.tools, jobLogAiCapabilities.getContext, {
-  route: route.path,
-  pageName: '调度日志'
+useAiPageTools(monitorJobLogPageContract, jobLogAiCapabilities.tools, jobLogAiCapabilities.getContext, {
+  route: route.path
 })
 
 (() => {

@@ -244,6 +244,7 @@ import JobDetail from './detail'
 import { listJob, getJob, delJob, addJob, updateJob, runJob, changeJobStatus } from "@/api/monitor/job"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { monitorJobPageContract } from "@/ai/pages/monitorPageCapabilities"
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -439,127 +440,75 @@ function handleExport() {
 
 
 const jobAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '定时任务',
-  toolPrefix: 'page_monitor_job',
-  queryFields: [
-    { key: 'jobName', label: '任务名称' },
-    { key: 'jobGroup', label: '任务组' },
-    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1暂停' },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  formFields: [
-    { key: 'jobName', label: '任务名称', required: true },
-    { key: 'jobGroup', label: '任务组', required: true },
-    { key: 'invokeTarget', label: '调用目标字符串', required: true },
-    { key: 'cronExpression', label: 'Cron 表达式', required: true },
-    { key: 'misfirePolicy', label: '执行策略', options: ['1', '2', '3'] },
-    { key: 'concurrent', label: '是否并发', options: ['0', '1'] },
-    { key: 'status', label: '状态', options: ['0', '1'] }
-  ],
-  query: {
-    permission: 'monitor:job:list',
-    apply: async args => {
-      for (const key of ['jobName', 'jobGroup', 'status', 'pageNum', 'pageSize']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
-      }
+  contract: monitorJobPageContract,
+  bindings: {
+    query: {
+      apply: async args => {
+        for (const key of ['jobName', 'jobGroup', 'status', 'pageNum', 'pageSize']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+        }
+      },
+      run: getList,
+      reset: resetQuery
     },
-    run: getList,
-    reset: resetQuery
-  },
-  form: {
-    addPermission: 'monitor:job:add',
-    editPermission: 'monitor:job:edit',
-    recordIdKey: 'jobId',
-    recordIdLabel: '任务ID',
-    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
-    openEdit: jobId => handleUpdate({ jobId }),
-    snapshot: () => ({ ...form.value }),
-    setFields: async args => {
-      const allowed = ['jobName', 'jobGroup', 'invokeTarget', 'cronExpression', 'misfirePolicy', 'concurrent', 'status']
-      const changedFields = []
-      for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
-        form.value[key] = args[key]
-        changedFields.push(key)
-      }
-      await nextTick()
-      return { changedFields, saved: false, form: { ...form.value } }
+    form: {
+      openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+      openEdit: jobId => handleUpdate({ jobId }),
+      snapshot: () => ({ ...form.value }),
+      setFields: async args => {
+        const allowed = ['jobName', 'jobGroup', 'invokeTarget', 'cronExpression', 'misfirePolicy', 'concurrent', 'status']
+        const changedFields = []
+        for (const key of allowed) if (Object.prototype.hasOwnProperty.call(args, key)) {
+          form.value[key] = args[key]
+          changedFields.push(key)
+        }
+        await nextTick()
+        return { changedFields, saved: false, form: { ...form.value } }
+      },
+      submit: submitFormCore
     },
-    submit: submitFormCore
-  },
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'monitor:job:query',
-      label: '查看任务详情',
-      inputSchema: { type: 'object', properties: { jobId: { type: 'integer' } }, required: ['jobId'], additionalProperties: false },
-      handler: async ({ jobId }) => {
+    actions: {
+      view: async ({ jobId }) => {
         const data = await handleView({ jobId })
         return { opened: true, jobId, data }
-      }
-    },
-    {
-      suffix: 'change_status',
-      permission: 'monitor:job:changeStatus',
-      label: '启用或暂停任务',
-      inputSchema: { type: 'object', properties: { jobId: { type: 'integer' }, status: { type: 'string', enum: ['0', '1'] } }, required: ['jobId', 'status'], additionalProperties: false },
-      handler: async ({ jobId, status }) => {
+      },
+      change_status: async ({ jobId, status }) => {
         await changeJobStatus(jobId, status)
         await getList()
         return { jobId, status }
-      }
-    },
-    {
-      suffix: 'run_now',
-      permission: 'monitor:job:changeStatus',
-      label: '立即执行一次任务',
-      inputSchema: { type: 'object', properties: { jobId: { type: 'integer' }, jobGroup: { type: 'string' } }, required: ['jobId', 'jobGroup'], additionalProperties: false },
-      handler: async ({ jobId, jobGroup }) => {
+      },
+      run_now: async ({ jobId, jobGroup }) => {
         await runJob(jobId, jobGroup)
         return { executed: true, jobId, jobGroup }
-      }
-    },
-    {
-      suffix: 'delete',
-      permission: 'monitor:job:remove',
-      label: '删除定时任务',
-      inputSchema: { type: 'object', properties: { jobIds: { type: 'array', items: { type: 'integer' } } }, required: ['jobIds'], additionalProperties: false },
-      handler: async ({ jobIds }) => {
+      },
+      delete: async ({ jobIds }) => {
         if (!Array.isArray(jobIds) || !jobIds.length) throw new Error('没有可删除的任务ID')
         await delJob(jobIds.join(','))
         await getList()
         return { deletedJobIds: jobIds }
-      }
-    },
-    {
-      suffix: 'export',
-      permission: 'monitor:job:export',
-      label: '按当前查询条件导出定时任务',
-      handler: async () => {
+      },
+      export: async () => {
         handleExport()
         return { started: true, query: { ...queryParams.value } }
       }
-    }
-  ],
-  getRows: () => jobList.value.slice(0, 50).map(item => ({ ...item })),
-  getTotal: () => total.value,
-  getSelectedIds: () => [...ids.value],
-  getContext: () => ({
-    query: { ...queryParams.value },
-    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
-    jobGroups: sys_job_group.value?.map(item => ({ label: item.label, value: item.value })) || [],
-    jobStatuses: sys_job_status.value?.map(item => ({ label: item.label, value: item.value })) || [],
-    relatedRoutes: [{ title: '调度日志', template: '/monitor/job-log/index/{jobId}' }],
-    open: open.value,
-    openView: openView.value,
-    form: open.value || openView.value ? { ...form.value } : null
-  })
+    },
+    getRows: () => jobList.value.slice(0, 50).map(item => ({ ...item })),
+    getTotal: () => total.value,
+    getSelectedIds: () => [...ids.value],
+    getContext: () => ({
+      query: { ...queryParams.value },
+      pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+      jobGroups: sys_job_group.value?.map(item => ({ label: item.label, value: item.value })) || [],
+      jobStatuses: sys_job_status.value?.map(item => ({ label: item.label, value: item.value })) || [],
+      relatedRoutes: [{ title: '调度日志', template: '/monitor/job-log/index/{jobId}' }],
+      open: open.value,
+      openView: openView.value,
+      form: open.value || openView.value ? { ...form.value } : null
+    })
+  }
 })
 
-useAiPageTools('monitor-job', jobAiCapabilities.tools, jobAiCapabilities.getContext, {
-  route: '/monitor/job',
-  pageName: '定时任务'
-})
+useAiPageTools(monitorJobPageContract, jobAiCapabilities.tools, jobAiCapabilities.getContext)
 
 getList()
 </script>
