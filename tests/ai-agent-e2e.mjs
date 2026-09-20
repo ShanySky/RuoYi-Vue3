@@ -340,8 +340,13 @@ try {
 
   await runtimeInputs.nth(0).fill('72')
   await runtimeInputs.nth(1).fill('70')
+  const customRuntimeSave = page.waitForResponse(response => {
+    const path = new URL(response.url()).pathname
+    return path.endsWith('/runtime-settings') && response.request().method() === 'PUT'
+  })
   await runtimeDialog.getByRole('button', { name: '保存设置', exact: true }).click()
-  await page.getByText('模型高级设置已保存', { exact: true }).waitFor({ timeout: 10000 })
+  assert.ok((await customRuntimeSave).ok(), 'Custom runtime settings save must succeed')
+  await runtimeDialog.waitFor({ state: 'hidden', timeout: 10000 })
   let persistedModels = await apiJson(token, '/ai/config/models')
   let persistedPrimary = persistedModels.find(item => item.modelCode === 'mock-agent-model')
   assert.equal(persistedPrimary.contextWindowTokens, 72 * 1024)
@@ -357,8 +362,13 @@ try {
   assert.equal(await runtimeInputs.nth(1).inputValue(), '70')
   await runtimeDialog.getByTestId('ai-runtime-restore-recommended').click()
   await runtimeDialog.getByTestId('ai-runtime-recommended-summary').waitFor()
+  const recommendedRuntimeSave = page.waitForResponse(response => {
+    const path = new URL(response.url()).pathname
+    return path.endsWith('/runtime-settings') && response.request().method() === 'PUT'
+  })
   await runtimeDialog.getByRole('button', { name: '保存设置', exact: true }).click()
-  await page.getByText('模型高级设置已保存', { exact: true }).waitFor({ timeout: 10000 })
+  assert.ok((await recommendedRuntimeSave).ok(), 'Recommended runtime settings restore must succeed')
+  await runtimeDialog.waitFor({ state: 'hidden', timeout: 10000 })
   persistedModels = await apiJson(token, '/ai/config/models')
   persistedPrimary = persistedModels.find(item => item.modelCode === 'mock-agent-model')
   assert.equal(persistedPrimary.contextWindowTokens, 65536)
