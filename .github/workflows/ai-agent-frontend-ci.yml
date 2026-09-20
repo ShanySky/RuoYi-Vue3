@@ -6,6 +6,7 @@ on:
       - chatgpt/ai-agent-assistant
       - chatgpt/ai-agent-hardening-phase35-p0
       - chatgpt/ai-agent-phase35-p1-closure
+      - chatgpt/ai-settings-boundary-closure
   workflow_dispatch:
 
 jobs:
@@ -19,6 +20,8 @@ jobs:
           node-version: '20'
       - name: Validate Capability Contract v1
         run: node tests/ai-capability-contract.test.mjs
+      - name: Validate AI settings boundary contract
+        run: node tests/ai-settings-boundary.test.mjs
       - name: Install dependencies
         run: npm install
       - name: Production build
