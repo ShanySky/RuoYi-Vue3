@@ -210,7 +210,60 @@ try {
   await page.locator('.el-select-dropdown:visible').getByText('高', { exact: true }).click()
   await page.getByText('默认思考档位已更新', { exact: true }).waitFor({ timeout: 10000 })
 
-  console.log('4a. Reasoning none/max are preserved end-to-end and unsupported minimal stays hidden')
+  console.log('4a. Ordinary user sees the same personal-only settings without receiving system AI permissions')
+  const plainUserName = `ai_plain_${Date.now().toString().slice(-8)}`
+  const plainPassword = 'Plain123!@#'
+  await apiRaw(token, '/system/user', 'POST', {
+    userName: plainUserName,
+    nickName: 'AI普通用户',
+    password: plainPassword,
+    deptId: 103,
+    status: '0',
+    roleIds: [],
+    postIds: [],
+    remark: 'AI settings boundary E2E'
+  }).then(({ payload }) => assert.equal(payload.code, 200, `Failed to create ordinary user: ${JSON.stringify(payload)}`))
+
+  const plainToken = await loginApi(plainUserName, plainPassword)
+  const plainProvider = await apiRaw(plainToken, '/ai/config/provider')
+  assert.equal(plainProvider.payload.code, 403, 'Ordinary user must not receive system AI configuration permission')
+  const plainEnabledModels = await apiRaw(plainToken, '/ai/config/models/enabled')
+  assert.equal(plainEnabledModels.payload.code, 200, 'Ordinary user must still be able to load enabled models')
+
+  const plainContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const plainPage = await plainContext.newPage()
+  await plainContext.addCookies([{ name: 'Admin-Token', value: plainToken, url: APP_URL }])
+  const plainSettingsRequests = []
+  const capturePlainSettingsRequest = request => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/dev-api/ai/') || path.startsWith('/ai/')) plainSettingsRequests.push(path)
+  }
+  plainPage.on('request', capturePlainSettingsRequest)
+  await plainPage.goto(`${APP_URL}/index`, { waitUntil: 'networkidle' })
+  await plainPage.locator('.ai-fab').click()
+  await assistantPanel(plainPage)
+  await plainPage.getByTestId('ai-assistant-settings').click()
+  const plainSettings = plainPage.locator('.quick-settings')
+  await plainSettings.getByText('我的聊天偏好', { exact: true }).waitFor({ timeout: 15000 })
+  await plainSettings.getByText('我的默认模型', { exact: true }).waitFor()
+  await plainSettings.getByText('我的默认思考档位', { exact: true }).waitFor()
+  assert.equal(await plainSettings.getByText('AI 服务连接', { exact: true }).count(), 0)
+  assert.equal(await plainSettings.getByText('系统模型', { exact: true }).count(), 0)
+  await plainPage.waitForTimeout(300)
+  assert.equal(plainSettingsRequests.some(path => path.endsWith('/ai/config/provider')), false)
+  assert.equal(plainSettingsRequests.some(path => path.endsWith('/ai/config/models')), false)
+  assert.ok(plainSettingsRequests.some(path => path.endsWith('/ai/config/models/enabled')))
+  plainPage.off('request', capturePlainSettingsRequest)
+  await plainContext.close()
+
+  const plainUserList = await apiRaw(token, `/system/user/list?userName=${encodeURIComponent(plainUserName)}&pageNum=1&pageSize=10`)
+  assert.equal(plainUserList.payload.code, 200)
+  const plainUser = (plainUserList.payload.rows || []).find(item => item.userName === plainUserName)
+  assert.ok(plainUser?.userId, 'Ordinary acceptance user must be discoverable for cleanup')
+  const plainDelete = await apiRaw(token, `/system/user/${plainUser.userId}`, 'DELETE')
+  assert.equal(plainDelete.payload.code, 200, 'Ordinary acceptance user cleanup must succeed')
+
+  console.log('4b. Reasoning none/max are preserved end-to-end and unsupported minimal stays hidden')
   const detectedModels = await apiJson(token, '/ai/config/models')
   const detectedPrimary = detectedModels.find(item => item.modelCode === 'mock-agent-model')
   assert.ok(detectedPrimary)
