@@ -173,6 +173,7 @@
 import { getServer } from '@/api/monitor/server'
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { monitorServerPageContract } from "@/ai/pages/monitorPageCapabilities"
 
 const server = ref([])
 const { proxy } = getCurrentInstance()
@@ -200,26 +201,19 @@ function serverSnapshot() {
 }
 
 const serverAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '服务监控',
-  toolPrefix: 'page_monitor_server',
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'monitor:server:list',
-      label: '查看服务器、JVM、CPU、内存和磁盘运行指标',
-      handler: async () => {
+  contract: monitorServerPageContract,
+  bindings: {
+    actions: {
+      view: async () => {
         if (!server.value?.cpu) await getList()
         return serverSnapshot()
       }
-    }
-  ],
-  getContext: () => serverSnapshot()
+    },
+    getContext: () => serverSnapshot()
+  }
 })
 
-useAiPageTools('monitor-server', serverAiCapabilities.tools, serverAiCapabilities.getContext, {
-  route: '/monitor/server',
-  pageName: '服务监控'
-})
+useAiPageTools(monitorServerPageContract, serverAiCapabilities.tools, serverAiCapabilities.getContext)
 
 getList()
 </script>

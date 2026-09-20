@@ -113,6 +113,8 @@ import RightPanel from './RightPanel'
 import CodeTypeDialog from './CodeTypeDialog'
 import { onMounted, watch } from 'vue'
 import { useAiPageTools } from '@/ai/toolRegistry'
+import { createAiCrudPageCapabilities } from '@/ai/crudPageCapabilities'
+import { toolBuildPageContract } from '@/ai/pages/toolPageCapabilities'
 
 initDrawingDefaultValue()
 
@@ -130,21 +132,25 @@ const formConf = ref(formConfData)
 let oldActiveId
 let tempActiveData
 
-useAiPageTools('tool.build', [], () => ({
-  integrationMode: 'navigation-only',
-  surface: 'visual-form-builder',
-  componentCount: drawingList.value.length,
-  activeComponent: activeData.value ? {
-    formId: activeData.value.formId,
-    label: activeData.value.label,
-    tag: activeData.value.tag,
-    layout: activeData.value.layout
-  } : null,
-  note: '表单构建器依赖拖拽组件树和复杂图形化状态；第三阶段仅提供安全导航/上下文，不开放坐标、任意 DOM 或脚本操作。'
-}), {
-  route: '/tool/build',
-  pageName: '表单构建'
+const buildAiCapabilities = createAiCrudPageCapabilities({
+  contract: toolBuildPageContract,
+  bindings: {
+    getContext: () => ({
+      integrationMode: 'navigation-only',
+      surface: 'visual-form-builder',
+      componentCount: drawingList.value.length,
+      activeComponent: activeData.value ? {
+        formId: activeData.value.formId,
+        label: activeData.value.label,
+        tag: activeData.value.tag,
+        layout: activeData.value.layout
+      } : null,
+      note: '表单构建器依赖拖拽组件树和复杂图形化状态；第三阶段仅提供安全导航/上下文，不开放坐标、任意 DOM 或脚本操作。'
+    })
+  }
 })
+
+useAiPageTools(toolBuildPageContract, buildAiCapabilities.tools, buildAiCapabilities.getContext)
 
 function activeFormItem(element) {
   activeData.value = element

@@ -69,6 +69,7 @@ import resetPwd from "./resetPwd"
 import { getUserProfile } from "@/api/system/user"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemProfilePageContract } from "@/ai/pages/systemPageCapabilities"
 
 const route = useRoute()
 const selectedTab = ref("userinfo")
@@ -89,13 +90,10 @@ function getUser() {
 }
 
 const profileAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '个人中心',
-  toolPrefix: 'page_system_profile',
-  actions: [
-    {
-      suffix: 'view',
-      label: '查看当前登录用户个人资料',
-      handler: async () => ({
+  contract: systemProfilePageContract,
+  bindings: {
+    actions: {
+      view: async () => ({
         user: {
           userId: state.user.userId,
           userName: state.user.userName,
@@ -108,48 +106,20 @@ const profileAiCapabilities = createAiCrudPageCapabilities({
         },
         roleGroup: state.roleGroup,
         postGroup: state.postGroup
-      })
-    },
-    {
-      suffix: 'set_fields',
-      label: '填写本人基本资料但不保存',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          nickName: { type: 'string', minLength: 1, maxLength: 30 },
-          phonenumber: { type: 'string', pattern: '^1[3-9][0-9]{9}$' },
-          email: { type: 'string', format: 'email', maxLength: 50 },
-          sex: { type: 'string', enum: ['0', '1'] }
-        },
-        additionalProperties: false
-      },
-      handler: async args => {
+      }),
+      set_fields: async args => {
         selectedTab.value = 'userinfo'
         await nextTick()
         if (!userInfoRef.value?.setFieldsForAi) throw new Error('基本资料表单尚未就绪')
         return await userInfoRef.value.setFieldsForAi(args)
-      }
-    },
-    {
-      suffix: 'submit',
-      label: '保存本人基本资料',
-      handler: async () => {
+      },
+      submit: async () => {
         selectedTab.value = 'userinfo'
         await nextTick()
         if (!userInfoRef.value?.submitCore) throw new Error('基本资料表单尚未就绪')
         return await userInfoRef.value.submitCore()
-      }
-    },
-    {
-      suffix: 'select_tab',
-      label: '切换个人中心页签',
-      inputSchema: {
-        type: 'object',
-        properties: { tab: { type: 'string', enum: ['userinfo', 'resetPwd'] } },
-        required: ['tab'],
-        additionalProperties: false
       },
-      handler: async ({ tab }) => {
+      select_tab: async ({ tab }) => {
         selectedTab.value = tab
         await nextTick()
         return {
@@ -157,30 +127,27 @@ const profileAiCapabilities = createAiCrudPageCapabilities({
           note: tab === 'resetPwd' ? '密码输入字段属于敏感凭据，不向 AI Tool 暴露' : undefined
         }
       }
-    }
-  ],
-  getContext: () => ({
-    selectedTab: selectedTab.value,
-    user: {
-      userId: state.user.userId,
-      userName: state.user.userName,
-      nickName: state.user.nickName,
-      phonenumber: state.user.phonenumber,
-      email: state.user.email,
-      sex: state.user.sex,
-      deptName: state.user.dept?.deptName,
-      createTime: state.user.createTime
     },
-    roleGroup: state.roleGroup,
-    postGroup: state.postGroup,
-    sensitiveCapabilitiesExcluded: ['passwordFields', 'avatarBinaryUpload']
-  })
+    getContext: () => ({
+      selectedTab: selectedTab.value,
+      user: {
+        userId: state.user.userId,
+        userName: state.user.userName,
+        nickName: state.user.nickName,
+        phonenumber: state.user.phonenumber,
+        email: state.user.email,
+        sex: state.user.sex,
+        deptName: state.user.dept?.deptName,
+        createTime: state.user.createTime
+      },
+      roleGroup: state.roleGroup,
+      postGroup: state.postGroup,
+      sensitiveCapabilitiesExcluded: ['passwordFields', 'avatarBinaryUpload']
+    })
+  }
 })
 
-useAiPageTools('system.user.profile', profileAiCapabilities.tools, profileAiCapabilities.getContext, {
-  route: '/user/profile',
-  pageName: '个人中心'
-})
+useAiPageTools(systemProfilePageContract, profileAiCapabilities.tools, profileAiCapabilities.getContext)
 
 onMounted(() => {
   const activeTab = route.params && route.params.activeTab

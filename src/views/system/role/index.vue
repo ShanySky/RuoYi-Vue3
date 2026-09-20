@@ -246,6 +246,7 @@ import { addRole, changeRoleStatus, dataScope, delRole, getRole, listRole, updat
 import { roleMenuTreeselect, treeselect as menuTreeselect } from "@/api/system/menu"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemRolePageContract } from "@/ai/pages/systemPageCapabilities"
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -603,150 +604,84 @@ function cancelDataScope() {
 
 
 const roleAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '角色管理',
-  toolPrefix: 'page_system_role',
-  queryFields: [
-    { key: 'roleName', label: '角色名称' },
-    { key: 'roleKey', label: '权限字符' },
-    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' },
-    { key: 'dateRange', label: '创建时间范围', type: 'array', itemType: 'string' },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  formFields: [
-    { key: 'roleName', label: '角色名称', required: true, inputSchema: { type: 'string', minLength: 1, maxLength: 30 } },
-    { key: 'roleKey', label: '权限字符', required: true, inputSchema: { type: 'string', minLength: 1, maxLength: 100 } },
-    { key: 'roleSort', label: '角色顺序', type: 'integer', required: true, inputSchema: { type: 'integer', minimum: 0 } },
-    { key: 'status', label: '状态', options: ['0', '1'], description: '0正常，1停用' },
-    { key: 'menuIds', label: '菜单权限ID', type: 'array', itemType: 'integer' },
-    { key: 'menuCheckStrictly', label: '菜单父子联动', type: 'boolean' },
-    { key: 'remark', label: '备注' }
-  ],
-  query: {
-    permission: 'system:role:list',
-    apply: async args => {
-      for (const key of ['roleName', 'roleKey', 'status', 'pageNum', 'pageSize']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
-      }
-      if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
-    },
-    run: getList,
-    reset: resetQuery
-  },
-  form: {
-    addPermission: 'system:role:add',
-    editPermission: 'system:role:edit',
-    recordIdKey: 'roleId',
-    recordIdLabel: '角色ID',
-    openAdd: async () => { handleAdd(); await nextTick(); return form.value },
-    openEdit: roleId => handleUpdate({ roleId }),
-    snapshot: () => ({ ...form.value, menuIds: menuRef.value?.getCheckedKeys?.() || [] }),
-    setFields: async args => {
-      const allowed = ['roleName', 'roleKey', 'roleSort', 'status', 'menuCheckStrictly', 'remark']
-      const changedFields = []
-      for (const key of allowed) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) {
-          form.value[key] = args[key]
-          changedFields.push(key)
+  contract: systemRolePageContract,
+  bindings: {
+    query: {
+      apply: async args => {
+        for (const key of ['roleName', 'roleKey', 'status', 'pageNum', 'pageSize']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
         }
-      }
-      await nextTick()
-      if (Array.isArray(args.menuIds) && menuRef.value) {
-        menuRef.value.setCheckedKeys(args.menuIds)
-        changedFields.push('menuIds')
-      }
-      return { changedFields, saved: false, form: { ...form.value }, menuIds: menuRef.value?.getCheckedKeys?.() || [] }
-    },
-    submit: submitFormCore
-  },
-  actions: [
-    {
-      suffix: 'data_scope_open',
-      permission: 'system:role:edit',
-      label: '打开角色数据权限',
-      inputSchema: { type: 'object', properties: { roleId: { type: 'integer' } }, required: ['roleId'], additionalProperties: false },
-      handler: ({ roleId }) => openDataScopeForAi(roleId)
-    },
-    {
-      suffix: 'data_scope_set_fields',
-      permission: 'system:role:edit',
-      label: '填写角色数据权限但不保存',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          dataScope: { type: 'string', enum: ['1', '2', '3', '4', '5'] },
-          deptCheckStrictly: { type: 'boolean' },
-          deptIds: { type: 'array', items: { type: 'integer' } }
-        },
-        additionalProperties: false
+        if (Array.isArray(args.dateRange)) dateRange.value = args.dateRange.slice(0, 2)
       },
-      handler: async args => {
+      run: getList,
+      reset: resetQuery
+    },
+    form: {
+      openAdd: async () => { handleAdd(); await nextTick(); return form.value },
+      openEdit: roleId => handleUpdate({ roleId }),
+      snapshot: () => ({ ...form.value, menuIds: menuRef.value?.getCheckedKeys?.() || [] }),
+      setFields: async args => {
+        const allowed = ['roleName', 'roleKey', 'roleSort', 'status', 'menuCheckStrictly', 'remark']
+        const changedFields = []
+        for (const key of allowed) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) {
+            form.value[key] = args[key]
+            changedFields.push(key)
+          }
+        }
+        await nextTick()
+        if (Array.isArray(args.menuIds) && menuRef.value) {
+          menuRef.value.setCheckedKeys(args.menuIds)
+          changedFields.push('menuIds')
+        }
+        return { changedFields, saved: false, form: { ...form.value }, menuIds: menuRef.value?.getCheckedKeys?.() || [] }
+      },
+      submit: submitFormCore
+    },
+    actions: {
+      data_scope_open: ({ roleId }) => openDataScopeForAi(roleId),
+      data_scope_set_fields: async args => {
         if (!openDataScope.value || form.value.roleId == undefined) throw new Error('请先打开角色数据权限')
         if (Object.prototype.hasOwnProperty.call(args, 'dataScope')) form.value.dataScope = args.dataScope
         if (Object.prototype.hasOwnProperty.call(args, 'deptCheckStrictly')) form.value.deptCheckStrictly = !!args.deptCheckStrictly
         await nextTick()
         if (Array.isArray(args.deptIds)) deptRef.value?.setCheckedKeys?.(args.deptIds)
         return { saved: false, roleId: form.value.roleId, dataScope: form.value.dataScope, deptCheckStrictly: form.value.deptCheckStrictly, deptIds: getDeptAllCheckedKeys() }
-      }
-    },
-    {
-      suffix: 'data_scope_submit',
-      permission: 'system:role:edit',
-      label: '提交角色数据权限',
-      handler: submitDataScopeCore
-    },
-    {
-      suffix: 'change_status',
-      permission: 'system:role:edit',
-      label: '启用或停用角色',
-      inputSchema: { type: 'object', properties: { roleId: { type: 'integer' }, status: { type: 'string', enum: ['0', '1'] } }, required: ['roleId', 'status'], additionalProperties: false },
-      handler: async ({ roleId, status }) => {
+      },
+      data_scope_submit: submitDataScopeCore,
+      change_status: async ({ roleId, status }) => {
         await changeRoleStatus(roleId, status)
         await getList()
         return { roleId, status }
-      }
-    },
-    {
-      suffix: 'delete',
-      permission: 'system:role:remove',
-      label: '删除角色',
-      inputSchema: { type: 'object', properties: { roleIds: { type: 'array', items: { type: 'integer' } } }, required: ['roleIds'], additionalProperties: false },
-      handler: async ({ roleIds }) => {
+      },
+      delete: async ({ roleIds }) => {
         if (!Array.isArray(roleIds) || !roleIds.length) throw new Error('没有可删除的角色ID')
         await delRole(roleIds.join(','))
         await getList()
         return { deletedRoleIds: roleIds }
-      }
-    },
-    {
-      suffix: 'export',
-      permission: 'system:role:export',
-      label: '按当前查询条件导出角色',
-      handler: async () => {
+      },
+      export: async () => {
         handleExport()
         return { started: true, query: { ...queryParams.value }, dateRange: [...dateRange.value] }
       }
-    }
-  ],
-  getRows: () => roleList.value.slice(0, 50).map(item => ({ ...item })),
-  getTotal: () => total.value,
-  getSelectedIds: () => [...ids.value],
-  getContext: () => ({
-    query: { ...queryParams.value },
-    dateRange: [...dateRange.value],
-    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
-    dataScopeOptions: dataScopeOptions.value.map(item => ({ ...item })),
-    relatedRoutes: [{ title: '分配用户', template: '/system/role-auth/user/{roleId}' }],
-    open: open.value,
-    openDataScope: openDataScope.value,
-    form: open.value || openDataScope.value ? { ...form.value } : null
-  })
+    },
+    getRows: () => roleList.value.slice(0, 50).map(item => ({ ...item })),
+    getTotal: () => total.value,
+    getSelectedIds: () => [...ids.value],
+    getContext: () => ({
+      query: { ...queryParams.value },
+      dateRange: [...dateRange.value],
+      pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+      dataScopeOptions: dataScopeOptions.value.map(item => ({ ...item })),
+      relatedRoutes: [{ title: '分配用户', template: '/system/role-auth/user/{roleId}' }],
+      open: open.value,
+      openDataScope: openDataScope.value,
+      form: open.value || openDataScope.value ? { ...form.value } : null
+    })
+  }
 })
 
-useAiPageTools('system-role', roleAiCapabilities.tools, roleAiCapabilities.getContext, {
-  route: '/system/role',
-  pageName: '角色管理'
-})
+useAiPageTools(systemRolePageContract, roleAiCapabilities.tools, roleAiCapabilities.getContext)
 
 getList()
 </script>

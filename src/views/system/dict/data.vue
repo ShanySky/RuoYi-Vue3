@@ -180,6 +180,7 @@ import useDictStore from '@/store/modules/dict'
 import { optionselect as getDictOptionselect, getType } from "@/api/system/dict/type"
 import { listData, getData, delData, addData, updateData } from "@/api/system/dict/data"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemDictDataPageContract } from "@/ai/pages/systemPageCapabilities"
 import { useAiPageTools } from "@/ai/toolRegistry"
 
 const { proxy } = getCurrentInstance()
@@ -371,97 +372,75 @@ function currentNormalOptions() {
 }
 
 const dictDataAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '字典数据',
-  toolPrefix: 'page_system_dict_data',
-  queryFields: [
-    { key: 'dictType', label: '字典类型', options: () => typeOptions.value.map(item => ({ label: item.dictName, value: item.dictType })) },
-    { key: 'dictLabel', label: '字典标签' },
-    { key: 'status', label: '状态', options: currentNormalOptions },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  formFields: [
-    { key: 'dictType', label: '字典类型', editable: false },
-    { key: 'dictLabel', label: '数据标签', required: true, validationRules: () => rules.value.dictLabel },
-    { key: 'dictValue', label: '数据键值', required: true, validationRules: () => rules.value.dictValue },
-    { key: 'cssClass', label: '样式属性' },
-    { key: 'dictSort', label: '显示排序', type: 'integer', required: true, validationRules: () => rules.value.dictSort, inputSchema: { type: 'integer', minimum: 0 } },
-    { key: 'listClass', label: '回显样式', options: () => listClassOptions.value },
-    { key: 'status', label: '状态', options: currentNormalOptions },
-    { key: 'remark', label: '备注' }
-  ],
-  query: {
-    permission: 'system:dict:list',
-    apply: async args => {
-      for (const key of ['dictType', 'dictLabel', 'status', 'pageNum', 'pageSize']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
-      }
-      queryParams.value.pageNum = Number(queryParams.value.pageNum || 1)
+  contract: systemDictDataPageContract,
+  bindings: {
+    queryFields: {
+      dictType: { options: () => typeOptions.value.map(item => ({ label: item.dictName, value: item.dictType })) },
+      status: { options: currentNormalOptions }
     },
-    run: getList,
-    reset: async () => {
-      Object.assign(queryParams.value, { pageNum: 1, pageSize: 10, dictType: defaultDictType.value, dictLabel: undefined, status: undefined })
-      return getList()
+    formFields: {
+      dictLabel: { validationRules: () => rules.value.dictLabel },
+      dictValue: { validationRules: () => rules.value.dictValue },
+      dictSort: { validationRules: () => rules.value.dictSort },
+      listClass: { options: () => listClassOptions.value },
+      status: { options: currentNormalOptions }
     },
-    result: () => ({ total: total.value, rows: dataList.value.map(item => ({ ...item })) })
-  },
-  form: {
-    addPermission: 'system:dict:add',
-    editPermission: 'system:dict:edit',
-    recordIdKey: 'dictCode',
-    recordIdLabel: '字典编码',
-    openAdd: async () => { handleAdd(); await nextTick(); return { ...form.value } },
-    openEdit: openDictDataForAi,
-    snapshot: () => ({ ...form.value }),
-    setFields: async args => {
-      if (!open.value) throw new Error('当前没有打开字典数据表单')
-      for (const key of ['dictLabel', 'dictValue', 'cssClass', 'dictSort', 'listClass', 'status', 'remark']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) form.value[key] = args[key]
-      }
-      await nextTick()
-      return { saved: false, form: { ...form.value } }
+    query: {
+      apply: async args => {
+        for (const key of ['dictType', 'dictLabel', 'status', 'pageNum', 'pageSize']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) queryParams.value[key] = args[key] ?? undefined
+        }
+        queryParams.value.pageNum = Number(queryParams.value.pageNum || 1)
+      },
+      run: getList,
+      reset: async () => {
+        Object.assign(queryParams.value, { pageNum: 1, pageSize: 10, dictType: defaultDictType.value, dictLabel: undefined, status: undefined })
+        return getList()
+      },
+      result: () => ({ total: total.value, rows: dataList.value.map(item => ({ ...item })) })
     },
-    submit: submitFormCore
-  },
-  actions: [
-    {
-      suffix: 'delete',
-      permission: 'system:dict:remove',
-      label: '删除字典数据',
-      inputSchema: { type: 'object', properties: { dictCodes: { type: 'array', items: { type: 'integer' } } }, required: ['dictCodes'], additionalProperties: false },
-      handler: async ({ dictCodes }) => {
+    form: {
+      openAdd: async () => { handleAdd(); await nextTick(); return { ...form.value } },
+      openEdit: openDictDataForAi,
+      snapshot: () => ({ ...form.value }),
+      setFields: async args => {
+        if (!open.value) throw new Error('当前没有打开字典数据表单')
+        for (const key of ['dictLabel', 'dictValue', 'cssClass', 'dictSort', 'listClass', 'status', 'remark']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) form.value[key] = args[key]
+        }
+        await nextTick()
+        return { saved: false, form: { ...form.value } }
+      },
+      submit: submitFormCore
+    },
+    actions: {
+      delete: async ({ dictCodes }) => {
         const values = Array.isArray(dictCodes) ? [...new Set(dictCodes.filter(Boolean))] : []
         if (!values.length) throw new Error('没有可删除的字典编码')
         await delData(values.join(','))
         useDictStore().removeDict(queryParams.value.dictType)
         await getList()
         return { deletedDictCodes: values }
-      }
-    },
-    {
-      suffix: 'export',
-      permission: 'system:dict:export',
-      label: '按当前查询条件导出字典数据',
-      handler: async () => {
+      },
+      export: async () => {
         handleExport()
         return { started: true, query: { ...queryParams.value } }
       }
-    }
-  ],
-  getRows: () => dataList.value.map(item => ({ ...item })),
-  getTotal: () => total.value,
-  getSelectedIds: () => [...ids.value],
-  getContext: () => ({
-    dictType: queryParams.value.dictType,
-    query: { ...queryParams.value },
-    pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
-    form: open.value ? { open: true, value: { ...form.value } } : { open: false }
-  })
+    },
+    getRows: () => dataList.value.map(item => ({ ...item })),
+    getTotal: () => total.value,
+    getSelectedIds: () => [...ids.value],
+    getContext: () => ({
+      dictType: queryParams.value.dictType,
+      query: { ...queryParams.value },
+      pagination: { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, total: total.value },
+      form: open.value ? { open: true, value: { ...form.value } } : { open: false }
+    })
+  }
 })
 
-useAiPageTools('system.dict.data', dictDataAiCapabilities.tools, dictDataAiCapabilities.getContext, {
-  route: route.path,
-  pageName: '字典数据'
+useAiPageTools(systemDictDataPageContract, dictDataAiCapabilities.tools, dictDataAiCapabilities.getContext, {
+  route: route.path
 })
 
 getTypes(route.params && route.params.dictId)

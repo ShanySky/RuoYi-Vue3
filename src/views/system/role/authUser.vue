@@ -95,6 +95,7 @@
 import selectUser from "./selectUser"
 import { allocatedUserList, unallocatedUserList, authUserCancel, authUserCancelAll, authUserSelectAll } from "@/api/system/role"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemRoleAuthUserPageContract } from "@/ai/pages/systemPageCapabilities"
 import { useAiPageTools } from "@/ai/toolRegistry"
 
 const route = useRoute()
@@ -178,45 +179,24 @@ function cancelAuthUserAll() {
 }
 
 const authUserAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '角色分配用户',
-  toolPrefix: 'page_system_role_auth_user',
-  queryFields: [
-    { key: 'userName', label: '用户名称' },
-    { key: 'phonenumber', label: '手机号码' },
-    { key: 'pageNum', label: '页码', type: 'integer' },
-    { key: 'pageSize', label: '每页数量', type: 'integer' }
-  ],
-  query: {
-    permission: 'system:role:list',
-    apply: async args => {
-      for (const key of ['userName', 'phonenumber', 'pageNum', 'pageSize']) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) queryParams[key] = args[key] ?? undefined
-      }
-      queryParams.pageNum = Number(queryParams.pageNum || 1)
-    },
-    run: getList,
-    reset: async () => {
-      Object.assign(queryParams, { pageNum: 1, pageSize: 10, userName: undefined, phonenumber: undefined })
-      return getList()
-    },
-    result: () => ({ total: total.value, rows: userList.value.map(item => ({ ...item })) })
-  },
-  actions: [
-    {
-      suffix: 'candidates',
-      permission: 'system:role:list',
-      label: '查询当前角色可添加的用户',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          userName: { type: 'string' },
-          phonenumber: { type: 'string' },
-          pageNum: { type: 'integer' },
-          pageSize: { type: 'integer' }
-        },
-        additionalProperties: false
+  contract: systemRoleAuthUserPageContract,
+  bindings: {
+    query: {
+      apply: async args => {
+        for (const key of ['userName', 'phonenumber', 'pageNum', 'pageSize']) {
+          if (Object.prototype.hasOwnProperty.call(args, key)) queryParams[key] = args[key] ?? undefined
+        }
+        queryParams.pageNum = Number(queryParams.pageNum || 1)
       },
-      handler: async args => {
+      run: getList,
+      reset: async () => {
+        Object.assign(queryParams, { pageNum: 1, pageSize: 10, userName: undefined, phonenumber: undefined })
+        return getList()
+      },
+      result: () => ({ total: total.value, rows: userList.value.map(item => ({ ...item })) })
+    },
+    actions: {
+      candidates: async args => {
         const params = {
           roleId: queryParams.roleId,
           pageNum: Number(args.pageNum || 1),
@@ -226,75 +206,41 @@ const authUserAiCapabilities = createAiCrudPageCapabilities({
         }
         const res = await unallocatedUserList(params)
         return { total: res.total, rows: res.rows || [] }
-      }
-    },
-    {
-      suffix: 'assign_users',
-      permission: 'system:role:edit',
-      label: '向当前角色批量授权用户',
-      inputSchema: {
-        type: 'object',
-        properties: { userIds: { type: 'array', items: { type: 'integer' } } },
-        required: ['userIds'],
-        additionalProperties: false
       },
-      handler: async ({ userIds: values }) => {
+      assign_users: async ({ userIds: values }) => {
         const selected = Array.isArray(values) ? [...new Set(values.filter(Boolean))] : []
         if (!selected.length) throw new Error('没有可授权的用户ID')
         await authUserSelectAll({ roleId: queryParams.roleId, userIds: selected.join(',') })
         await getList()
         return { roleId: Number(queryParams.roleId), assignedUserIds: selected }
-      }
-    },
-    {
-      suffix: 'cancel_user',
-      permission: 'system:role:edit',
-      label: '取消单个用户的当前角色授权',
-      inputSchema: {
-        type: 'object',
-        properties: { userId: { type: 'integer' } },
-        required: ['userId'],
-        additionalProperties: false
       },
-      handler: async ({ userId }) => {
+      cancel_user: async ({ userId }) => {
         if (!userId) throw new Error('缺少用户ID')
         await authUserCancel({ userId, roleId: queryParams.roleId })
         await getList()
         return { roleId: Number(queryParams.roleId), cancelledUserId: userId }
-      }
-    },
-    {
-      suffix: 'cancel_users',
-      permission: 'system:role:edit',
-      label: '批量取消用户的当前角色授权',
-      inputSchema: {
-        type: 'object',
-        properties: { userIds: { type: 'array', items: { type: 'integer' } } },
-        required: ['userIds'],
-        additionalProperties: false
       },
-      handler: async ({ userIds: values }) => {
+      cancel_users: async ({ userIds: values }) => {
         const selected = Array.isArray(values) ? [...new Set(values.filter(Boolean))] : []
         if (!selected.length) throw new Error('没有可取消授权的用户ID')
         await authUserCancelAll({ roleId: queryParams.roleId, userIds: selected.join(',') })
         await getList()
         return { roleId: Number(queryParams.roleId), cancelledUserIds: selected }
       }
-    }
-  ],
-  getRows: () => userList.value.map(item => ({ ...item })),
-  getTotal: () => total.value,
-  getSelectedIds: () => [...userIds.value],
-  getContext: () => ({
-    roleId: Number(queryParams.roleId),
-    query: { ...queryParams },
-    pagination: { pageNum: queryParams.pageNum, pageSize: queryParams.pageSize, total: total.value }
-  })
+    },
+    getRows: () => userList.value.map(item => ({ ...item })),
+    getTotal: () => total.value,
+    getSelectedIds: () => [...userIds.value],
+    getContext: () => ({
+      roleId: Number(queryParams.roleId),
+      query: { ...queryParams },
+      pagination: { pageNum: queryParams.pageNum, pageSize: queryParams.pageSize, total: total.value }
+    })
+  }
 })
 
-useAiPageTools('system.role.authUser', authUserAiCapabilities.tools, authUserAiCapabilities.getContext, {
-  route: route.path,
-  pageName: '角色分配用户'
+useAiPageTools(systemRoleAuthUserPageContract, authUserAiCapabilities.tools, authUserAiCapabilities.getContext, {
+  route: route.path
 })
 
 getList()

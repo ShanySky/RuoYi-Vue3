@@ -49,6 +49,7 @@
 import { getAuthRole, updateAuthRole } from "@/api/system/user"
 import { useAiPageTools } from "@/ai/toolRegistry"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { systemAuthRolePageContract } from "@/ai/pages/systemPageCapabilities"
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
@@ -144,29 +145,14 @@ function roleSnapshot() {
 }
 
 const authRoleAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '分配角色',
-  toolPrefix: 'page_system_user_auth_role',
-  actions: [
-    {
-      suffix: 'view',
-      permission: 'system:user:query',
-      label: '查看当前用户及角色授权状态',
-      handler: async () => {
+  contract: systemAuthRolePageContract,
+  bindings: {
+    actions: {
+      view: async () => {
         if (!form.value.userId) await loadUserRoles()
         return roleSnapshot()
-      }
-    },
-    {
-      suffix: 'select',
-      permission: 'system:user:edit',
-      label: '选择准备授予当前用户的角色',
-      inputSchema: {
-        type: 'object',
-        properties: { roleIds: { type: 'array', items: { type: 'integer' } } },
-        required: ['roleIds'],
-        additionalProperties: false
       },
-      handler: async ({ roleIds: requestedRoleIds }) => {
+      select: async ({ roleIds: requestedRoleIds }) => {
         const requested = new Set((requestedRoleIds || []).map(Number))
         const selectableIds = new Set(roles.value.filter(checkSelectable).map(item => Number(item.roleId)))
         const selected = [...requested].filter(id => selectableIds.has(id))
@@ -179,21 +165,15 @@ const authRoleAiCapabilities = createAiCrudPageCapabilities({
         }
         roleIds.value = selected
         return { selectedRoleIds: [...selected], saved: false }
-      }
+      },
+      submit: async () => submitFormCore(false)
     },
-    {
-      suffix: 'submit',
-      permission: 'system:user:edit',
-      label: '提交当前用户角色授权',
-      handler: async () => submitFormCore(false)
-    }
-  ],
-  getContext: roleSnapshot
+    getContext: roleSnapshot
+  }
 })
 
-useAiPageTools('system-user-auth-role', authRoleAiCapabilities.tools, authRoleAiCapabilities.getContext, {
-  route: route.path,
-  pageName: '分配角色'
+useAiPageTools(systemAuthRolePageContract, authRoleAiCapabilities.tools, authRoleAiCapabilities.getContext, {
+  route: route.path
 })
 
 loadUserRoles()

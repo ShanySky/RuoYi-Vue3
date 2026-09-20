@@ -157,6 +157,7 @@
 <script setup name="CacheList">
 import { listCacheName, listCacheKey, getCacheValue, clearCacheName, clearCacheKey, clearCacheAll } from "@/api/monitor/cache"
 import { createAiCrudPageCapabilities } from "@/ai/crudPageCapabilities"
+import { monitorCacheListPageContract } from "@/ai/pages/monitorPageCapabilities"
 import { useAiPageTools } from "@/ai/toolRegistry"
 
 const { proxy } = getCurrentInstance()
@@ -245,57 +246,22 @@ function handleClearCacheAll() {
 }
 
 const cacheListAiCapabilities = createAiCrudPageCapabilities({
-  pageName: '缓存列表',
-  toolPrefix: 'page_monitor_cache_list',
-  actions: [
-    {
-      suffix: 'keys',
-      permission: 'monitor:cache:list',
-      label: '列出指定缓存名称下的键名',
-      inputSchema: {
-        type: 'object',
-        properties: { cacheName: { type: 'string' } },
-        required: ['cacheName'],
-        additionalProperties: false
-      },
-      handler: async ({ cacheName }) => {
+  contract: monitorCacheListPageContract,
+  bindings: {
+    actions: {
+      keys: async ({ cacheName }) => {
         const response = await listCacheKey(cacheName)
         nowCacheName.value = cacheName
         cacheKeys.value = response.data || []
         return { cacheName, keys: [...cacheKeys.value] }
-      }
-    },
-    {
-      suffix: 'view_value',
-      permission: 'monitor:cache:list',
-      label: '查看指定缓存键的值',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          cacheName: { type: 'string' },
-          cacheKey: { type: 'string' }
-        },
-        required: ['cacheName', 'cacheKey'],
-        additionalProperties: false
       },
-      handler: async ({ cacheName, cacheKey }) => {
+      view_value: async ({ cacheName, cacheKey }) => {
         const response = await getCacheValue(cacheName, cacheKey)
         nowCacheName.value = cacheName
         cacheForm.value = response.data || {}
         return { ...cacheForm.value }
-      }
-    },
-    {
-      suffix: 'clear_name',
-      permission: 'monitor:cache:list',
-      label: '清理指定缓存名称下全部键',
-      inputSchema: {
-        type: 'object',
-        properties: { cacheName: { type: 'string' } },
-        required: ['cacheName'],
-        additionalProperties: false
       },
-      handler: async ({ cacheName }) => {
+      clear_name: async ({ cacheName }) => {
         await clearCacheName(cacheName)
         if (nowCacheName.value === cacheName) {
           cacheKeys.value = []
@@ -303,30 +269,14 @@ const cacheListAiCapabilities = createAiCrudPageCapabilities({
         }
         await getCacheNames()
         return { cacheName, cleared: true }
-      }
-    },
-    {
-      suffix: 'clear_key',
-      permission: 'monitor:cache:list',
-      label: '删除指定缓存键',
-      inputSchema: {
-        type: 'object',
-        properties: { cacheKey: { type: 'string' } },
-        required: ['cacheKey'],
-        additionalProperties: false
       },
-      handler: async ({ cacheKey }) => {
+      clear_key: async ({ cacheKey }) => {
         await clearCacheKey(cacheKey)
         if (nowCacheName.value) await getCacheKeys()
         if (cacheForm.value?.cacheKey === cacheKey) cacheForm.value = {}
         return { cacheKey, cleared: true }
-      }
-    },
-    {
-      suffix: 'clear_all',
-      permission: 'monitor:cache:list',
-      label: '清理全部缓存',
-      handler: async () => {
+      },
+      clear_all: async () => {
         await clearCacheAll()
         cacheKeys.value = []
         cacheForm.value = {}
@@ -334,20 +284,17 @@ const cacheListAiCapabilities = createAiCrudPageCapabilities({
         await getCacheNames()
         return { clearedAll: true }
       }
-    }
-  ],
-  getContext: () => ({
-    cacheNames: cacheNames.value.map(item => ({ ...item })),
-    selectedCacheName: nowCacheName.value,
-    cacheKeys: [...cacheKeys.value],
-    cacheValue: cacheForm.value ? { ...cacheForm.value } : null
-  })
+    },
+    getContext: () => ({
+      cacheNames: cacheNames.value.map(item => ({ ...item })),
+      selectedCacheName: nowCacheName.value,
+      cacheKeys: [...cacheKeys.value],
+      cacheValue: cacheForm.value ? { ...cacheForm.value } : null
+    })
+  }
 })
 
-useAiPageTools('monitor.cache.list', cacheListAiCapabilities.tools, cacheListAiCapabilities.getContext, {
-  route: '/monitor/cacheList',
-  pageName: '缓存列表'
-})
+useAiPageTools(monitorCacheListPageContract, cacheListAiCapabilities.tools, cacheListAiCapabilities.getContext)
 
 getCacheNames()
 </script>

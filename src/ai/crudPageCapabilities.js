@@ -103,7 +103,9 @@ function mergeFieldBindings(fields, bindings = {}) {
 }
 
 function normalizeCapabilityOptions(configuration) {
-  if (!configuration?.contract) return configuration
+  if (!configuration?.contract) {
+    throw new Error('AI Page Capability requires a formal contract')
+  }
   const contract = configuration.contract
   const bindings = configuration.bindings || {}
   return {
