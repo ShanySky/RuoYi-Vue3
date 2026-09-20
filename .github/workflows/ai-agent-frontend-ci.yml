@@ -19,6 +19,8 @@ jobs:
           node-version: '20'
       - name: Validate Capability Contract v1
         run: node tests/ai-capability-contract.test.mjs
+      - name: Validate AI settings boundary contract
+        run: node tests/ai-settings-boundary.test.mjs
       - name: Install dependencies
         run: npm install
       - name: Production build
