@@ -61,8 +61,8 @@
 
         <div class="preference-row preference-row-separated">
           <div>
-            <div class="preference-label">登录后自动恢复上次会话</div>
-            <div class="preference-tip">默认关闭；恢复后仍可短时撤销。</div>
+            <div class="preference-label">登录后自动继续上次会话</div>
+            <div class="preference-tip">默认关闭；继续后仍可短时撤销。</div>
           </div>
           <el-switch :model-value="preferences.autoRestoreLastConversation" size="small" @change="changeAutoRestore" />
         </div>

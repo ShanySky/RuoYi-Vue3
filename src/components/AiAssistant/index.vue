@@ -115,7 +115,7 @@
                     <section v-for="group in historyGroups" :key="group.label" class="history-group">
                       <div class="history-group-label">{{ group.label }}</div>
                       <article v-for="item in group.items" :key="item.conversationId" class="history-item" :data-conversation-id="item.conversationId">
-                        <button class="history-main" type="button" @click="restoreConversationFromHistory(item.conversationId)">
+                        <button class="history-main" type="button" @click="continueConversationFromHistory(item.conversationId)">
                           <span class="history-title">{{ item.title || `会话 #${item.conversationId}` }}</span>
                           <span class="history-time">{{ formatHistoryTime(item.updateTime || item.createTime) }}</span>
                         </button>
@@ -136,7 +136,7 @@
             </div>
           </div>
           <div v-if="restoreUndo" class="restore-undo-banner" data-testid="ai-restore-undo">
-            <span>已恢复历史会话</span>
+            <span>已继续历史会话</span>
             <el-button link size="small" @click="undoRestore">撤销恢复</el-button>
           </div>
 
@@ -149,8 +149,8 @@
                 <span>查询当前页面数据</span>
                 <span>打开并填写表单</span>
               </div>
-              <el-button link size="small" class="restore-last-button" @click="restoreLastConversation()">
-                恢复上次会话
+              <el-button link size="small" class="restore-last-button" @click="continueLastConversation()">
+                继续上次会话
               </el-button>
             </div>
 
@@ -262,17 +262,18 @@ import {
   ChatDotRound, ChatLineRound, CircleCheck, Clock, Close, EditPen, FullScreen,
   MagicStick, ScaleToOriginal, Setting
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
+import { useConversationHistory } from './useConversationHistory'
 import {
-  archiveAiConversation, cancelAiRun, cancelAiRunByClientKey, createAiConversation,
-  getAiConversation, getLastAiConversation, renameAiConversation, sendAiTurn
+  cancelAiRun, cancelAiRunByClientKey, createAiConversation, getAiConversation, sendAiTurn
 } from '@/api/ai/chat'
 import {
   getCurrentPageContext, getCurrentPageRuntime, getFrontendToolDefinitions, invokeFrontendTool
 } from '@/ai/toolRegistry'
 import { shouldPreserveToolExecutionRuntime } from '@/ai/capabilityProtocol'
+import { createAiKeyboardController, hasVisibleAiOverlay, isAiFocusActive } from '@/ai/keyboardPolicy'
 import useAiStore from '@/store/modules/ai'
 
 const emit = defineEmits(['dock-change'])
@@ -318,19 +319,45 @@ const conversationId = computed({
 const messages = computed(() => aiStore.messages)
 const messagePane = ref(null)
 const sendShortcut = computed(() => aiStore.preferences.sendShortcut || 'enter')
-const historyQuery = ref('')
-const historyLoading = ref(false)
-const historyPopoverVisible = ref(false)
-const restoreUndo = ref(null)
+
+const {
+  historyQuery,
+  historyLoading,
+  historyPopoverVisible,
+  restoreUndo,
+  historyGroups,
+  clearRestoreUndo,
+  continueLastConversation,
+  undoRestore,
+  loadHistory,
+  formatHistoryTime,
+  continueConversationFromHistory,
+  renameHistoryConversation,
+  archiveHistoryConversation,
+  newConversation,
+  disposeConversationHistory
+} = useConversationHistory(aiStore, {
+  scrollToBottom: () => {
+    if (messagePane.value) messagePane.value.scrollTop = messagePane.value.scrollHeight
+  }
+})
 let runGeneration = 0
 let activeRunId = null
 let activeClientRunKey = null
 let activeAbortController = null
 let conversationCreationPromise = null
-let escArmedAt = 0
-let escTimer = null
-let restoreUndoTimer = null
 let pendingConfirmationResolve = null
+
+const keyboardController = createAiKeyboardController({
+  getBusy: () => busy.value,
+  getDoubleEscEnabled: () => !!aiStore.preferences.doubleEscEnabled,
+  isFocusActive: () => isAiFocusActive(panelRef.value),
+  hasVisibleOverlay: () => hasVisibleAiOverlay(),
+  closeModelPicker: () => !!modelPickerRef.value?.closeIfOpen?.(),
+  onSend: () => sendMessage(),
+  onStop: reason => { void stopCurrentRun(reason) },
+  onArmedChange: value => { escArmed.value = value }
+})
 
 const COMPACTION_WORKING_TEXT = '正在整理较早的会话上下文…'
 
@@ -422,134 +449,6 @@ async function handleSettingsUpdated() {
   await Promise.all([loadModels(), aiStore.loadPreferences()])
 }
 
-function clearRestoreUndo() {
-  restoreUndo.value = null
-  if (restoreUndoTimer) {
-    clearTimeout(restoreUndoTimer)
-    restoreUndoTimer = null
-  }
-}
-
-function captureConversationSnapshot() {
-  return {
-    conversationId: conversationId.value,
-    draft: input.value,
-    modelId: modelId.value,
-    reasoningEffort: reasoningEffort.value,
-    messages: messages.value.map(item => ({ ...item }))
-  }
-}
-
-async function restoreConversationWithUndo(targetConversationId) {
-  if (!targetConversationId || targetConversationId === conversationId.value) return
-  const previous = captureConversationSnapshot()
-  await aiStore.restoreConversation(targetConversationId)
-  restoreUndo.value = previous
-  if (restoreUndoTimer) clearTimeout(restoreUndoTimer)
-  restoreUndoTimer = setTimeout(clearRestoreUndo, 10000)
-  historyPopoverVisible.value = false
-  nextTick(() => {
-    if (messagePane.value) messagePane.value.scrollTop = messagePane.value.scrollHeight
-  })
-}
-
-async function restoreLastConversation({ silent = false } = {}) {
-  try {
-    const res = await getLastAiConversation()
-    const last = res.data
-    if (!last?.conversationId) {
-      if (!silent) ElMessage.info('暂无可恢复的历史会话')
-      return
-    }
-    await restoreConversationWithUndo(last.conversationId)
-  } catch (error) {
-    if (!silent) ElMessage.error(error?.message || '恢复上次会话失败')
-  }
-}
-
-async function undoRestore() {
-  const snapshot = restoreUndo.value
-  if (!snapshot) return
-  clearRestoreUndo()
-  if (snapshot.conversationId) {
-    await aiStore.restoreConversation(snapshot.conversationId)
-    aiStore.setDraft(snapshot.draft)
-    return
-  }
-  aiStore.newConversation()
-  aiStore.messages = snapshot.messages || []
-  aiStore.modelId = snapshot.modelId
-  aiStore.reasoningEffort = snapshot.reasoningEffort || null
-  aiStore.setDraft(snapshot.draft)
-}
-
-async function loadHistory() {
-  historyLoading.value = true
-  try {
-    await aiStore.loadHistory(historyQuery.value)
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-function parseHistoryDate(value) {
-  if (!value) return null
-  const date = new Date(String(value).replace(' ', 'T'))
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
-function formatHistoryTime(value) {
-  const date = parseHistoryDate(value)
-  if (!date) return ''
-  return date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-const historyGroups = computed(() => {
-  const today = new Date()
-  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-  const startYesterday = startToday - 86400000
-  const groups = new Map()
-  for (const item of aiStore.history || []) {
-    const date = parseHistoryDate(item.updateTime || item.createTime)
-    const time = date?.getTime() || 0
-    const label = time >= startToday ? '今天' : (time >= startYesterday ? '昨天' : (date ? date.toLocaleDateString() : '更早'))
-    if (!groups.has(label)) groups.set(label, [])
-    groups.get(label).push(item)
-  }
-  return [...groups.entries()].map(([label, items]) => ({ label, items }))
-})
-
-async function restoreConversationFromHistory(id) {
-  await restoreConversationWithUndo(id)
-}
-
-async function renameHistoryConversation(item) {
-  const { value } = await ElMessageBox.prompt('请输入新的会话标题', '重命名会话', {
-    inputValue: item.title || '',
-    confirmButtonText: '保存',
-    cancelButtonText: '取消',
-    inputValidator: value => !!String(value || '').trim() || '标题不能为空'
-  })
-  await renameAiConversation(item.conversationId, String(value).trim())
-  await loadHistory()
-}
-
-async function archiveHistoryConversation(item) {
-  await ElMessageBox.confirm('归档后仍保留历史数据，可由系统策略后续清理。确认归档？', '归档会话', {
-    confirmButtonText: '归档',
-    cancelButtonText: '取消',
-    type: 'warning'
-  })
-  await archiveAiConversation(item.conversationId)
-  if (item.conversationId === conversationId.value) aiStore.newConversation()
-  await loadHistory()
-}
-
-function newConversation() {
-  clearRestoreUndo()
-  aiStore.newConversation()
-}
-
 async function setSendShortcut(value) {
   const previous = aiStore.preferences.sendShortcut
   aiStore.preferences.sendShortcut = value
@@ -564,18 +463,7 @@ async function setSendShortcut(value) {
 }
 
 function handleComposerKeydown(event) {
-  if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return
-  if (sendShortcut.value === 'ctrl-enter') {
-    if (event.ctrlKey || event.metaKey) {
-      event.preventDefault()
-      sendMessage()
-    }
-    return
-  }
-  if (!event.ctrlKey && !event.metaKey) {
-    event.preventDefault()
-    sendMessage()
-  }
+  keyboardController.handleComposerKeydown(event, sendShortcut.value)
 }
 
 async function ensureConversation() {
@@ -854,65 +742,12 @@ async function driveTurn(extra, generation, signal, lifecycleEpoch = aiStore.lif
   throw new Error('本轮页面工具调用次数超过限制')
 }
 
-function isVisibleElement(element) {
-  if (!element) return false
-  const style = getComputedStyle(element)
-  const rect = element.getBoundingClientRect()
-  return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0
-}
-
-function hasVisibleAiOverlay() {
-  const selectors = ['.ai-model-picker-popper', '.el-select-dropdown', '.ai-remote-model-dialog', '.el-message-box']
-  return selectors.some(selector => [...document.querySelectorAll(selector)].some(isVisibleElement))
-}
-
 function resetEscArmed() {
-  escArmed.value = false
-  escArmedAt = 0
-  if (escTimer) {
-    clearTimeout(escTimer)
-    escTimer = null
-  }
-}
-
-function isAiFocusActive() {
-  const active = document.activeElement
-  if (panelRef.value?.contains(active)) return true
-  if (!(active instanceof Element)) return false
-  return !!active.closest('.ai-model-picker-popper, .ai-remote-model-dialog, .el-message-box, .el-select-dropdown')
+  keyboardController.resetEscSequence()
 }
 
 function handleGlobalKeydown(event) {
-  if (event.key !== 'Escape' || event.isComposing || !busy.value || !aiStore.preferences.doubleEscEnabled) return
-  if (!isAiFocusActive()) return
-
-  // A manually-controlled model popover does not close itself on Escape, so close it explicitly.
-  // This Escape is intentionally not counted as the first stop gesture.
-  if (modelPickerRef.value?.closeIfOpen?.()) {
-    event.preventDefault()
-    event.stopPropagation()
-    resetEscArmed()
-    return
-  }
-
-  // Other Element Plus overlays may close themselves later in the same Escape event.
-  // Clear the stop sequence and let the event continue to the owning overlay.
-  if (hasVisibleAiOverlay()) {
-    resetEscArmed()
-    return
-  }
-
-  const now = Date.now()
-  if (escArmed.value && now - escArmedAt <= 700) {
-    event.preventDefault()
-    resetEscArmed()
-    void stopCurrentRun('DOUBLE_ESC')
-    return
-  }
-
-  escArmed.value = true
-  escArmedAt = now
-  escTimer = setTimeout(resetEscArmed, 720)
+  keyboardController.handleGlobalKeydown(event)
 }
 
 function emitDockState() {
@@ -949,13 +784,13 @@ onMounted(async () => {
   await aiStore.initialize()
   showModelFallbackNotice()
   if (!hadSessionConversation && !aiStore.conversationId && aiStore.preferences.autoRestoreLastConversation) {
-    await restoreLastConversation({ silent: true })
+    await continueLastConversation({ silent: true })
   }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown, true)
   resetEscArmed()
-  clearRestoreUndo()
+  disposeConversationHistory()
   cancelPendingConfirmation()
   activeAbortController?.abort()
 })
