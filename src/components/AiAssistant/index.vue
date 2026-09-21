@@ -173,6 +173,8 @@
               </div>
             </template>
 
+            <Artifacts :conversation-id="conversationId" :busy="busy" />
+
             <div v-if="pendingConfirmation" class="write-confirm-card" data-testid="ai-write-confirmation">
               <div class="write-confirm-title">需要确认写入操作</div>
               <div class="write-confirm-description">{{ pendingConfirmation.description }}</div>
@@ -266,6 +268,7 @@ import {
 import { ElMessage } from 'element-plus'
 import AiModelPicker from '@/components/AiModelPicker/index.vue'
 import QuickSettings from './QuickSettings.vue'
+import Artifacts from './Artifacts.vue'
 import { useConversationHistory } from './useConversationHistory'
 import {
   cancelAiRun, cancelAiRunByClientKey, createAiConversation, getAiConversationRunState, sendAiTurn, confirmAiServerTool
